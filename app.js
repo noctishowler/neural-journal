@@ -1,42 +1,20 @@
 'use strict';
 
-// Elements and state
+// ============================================================
+// Elements / constants
+// ============================================================
 
 const $ = id => document.getElementById(id);
+
 const screen = $('screen');
 const hint = $('hint');
 const status = $('status');
 
 const STORE = 'neural-journal-v1';
-const LENGTH = 8;
+const PASSWORD_LENGTH = 8;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-
-let vault = null;
-let key = null;
-let entries = [];
-
-let view = 'lock';
-
-let sequence = [];
-let first = null;
-let failures = 0;
-
-let busy = false;
-
-let draft = null;
-let saveQueue = Promise.resolve();
-
-let selectedDate = new Date();
-let historyFocus = null;
-let historyOrigin = 'menu';
-let filter = '';
-
-let pointer = null;
-let suppressClick = false;
-let calendarDragging = false;
-let calendarDragChanged = false;
 
 const arrows = {
   ArrowUp: '↑',
@@ -44,6 +22,42 @@ const arrows = {
   ArrowLeft: '←',
   ArrowRight: '→'
 };
+
+
+// ============================================================
+// App state
+// ============================================================
+
+let vault = null;
+let key = null;
+let entries = [];
+
+let view = 'lock';
+let busy = false;
+
+let sequence = [];
+let firstSequence = null;
+let failures = 0;
+
+let draft = null;
+let saveQueue = Promise.resolve();
+
+let selectedDate = new Date();
+
+let historyState = {
+  origin: 'menu',
+  day: null,
+  focus: null
+};
+
+let pointer = null;
+let suppressClick = false;
+let calendarPointerActive = false;
+
+
+// ============================================================
+// General helpers
+// ============================================================
 
 const b64 = value =>
   btoa(
@@ -55,19 +69,19 @@ const b64 = value =>
 const un64 = value =>
   Uint8Array.from(
     atob(value),
-    character =>
-      character.charCodeAt(0)
+    character => character.charCodeAt(0)
   );
 
-const dateKey = date =>
-  `${date.getFullYear()}-${String(
-    date.getMonth() + 1
-  ).padStart(2, '0')}-${String(
-    date.getDate()
-  ).padStart(2, '0')}`;
+function dateKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
 
-const displayDate = date =>
-  new Date(date).toLocaleDateString(
+function displayDate(date) {
+  return new Date(date).toLocaleDateString(
     undefined,
     {
       month: 'short',
@@ -75,18 +89,20 @@ const displayDate = date =>
       year: 'numeric'
     }
   );
+}
 
-function say(message) {
+function today() {
+  const now = new Date();
+  now.setHours(12, 0, 0, 0);
+  return now;
+}
+
+function say(message = '') {
   status.textContent = message;
 }
 
-function el(
-  tag,
-  text,
-  className
-) {
-  const element =
-    document.createElement(tag);
+function el(tag, text, className) {
+  const element = document.createElement(tag);
 
   if (text !== undefined) {
     element.textContent = text;
@@ -99,15 +115,11 @@ function el(
   return element;
 }
 
-function button(
-  label,
-  action,
-  small
-) {
-  const element =
-    el('button', label);
+function button(label, action, small) {
+  const element = el('button', label);
 
   element.type = 'button';
+  element.onclick = action;
 
   if (small) {
     element.append(
@@ -115,20 +127,13 @@ function button(
     );
   }
 
-  element.onclick = action;
-
   return element;
 }
 
-function base(
-  title,
-  instruction
-) {
+function base(title, instruction = '') {
   screen.replaceChildren();
   screen.className = '';
-
-  hint.textContent =
-    instruction;
+  hint.textContent = instruction;
 
   if (title) {
     screen.append(
@@ -139,39 +144,40 @@ function base(
 
 function focusFirst() {
   screen
-    .querySelector(
-      'textarea,input,button'
-    )
+    .querySelector('textarea,input,button')
     ?.focus();
 }
 
-function today() {
+function createDraft() {
   const now = new Date();
 
-  now.setHours(
-    12,
-    0,
-    0,
-    0
-  );
+  return {
+    id: crypto.randomUUID(),
+    created: now.toISOString(),
+    day: dateKey(now),
+    text: ''
+  };
+}
 
-  return now;
+function suppressNextClick() {
+  suppressClick = true;
+
+  setTimeout(() => {
+    suppressClick = false;
+  }, 350);
 }
 
 
-// ----------------------------------
-// Encrypted storage
-// ----------------------------------
+// ============================================================
+// Encryption / storage
+// ============================================================
 
-async function derive(
-  seq,
-  salt
-) {
+async function derive(sequenceValue, salt) {
   const material =
     await crypto.subtle.importKey(
       'raw',
       enc.encode(
-        seq.join(',')
+        sequenceValue.join(',')
       ),
       'PBKDF2',
       false,
@@ -191,10 +197,7 @@ async function derive(
       length: 256
     },
     false,
-    [
-      'encrypt',
-      'decrypt'
-    ]
+    ['encrypt', 'decrypt']
   );
 }
 
@@ -243,9 +246,7 @@ function persist() {
       .then(async () => {
         const next =
           await encrypt(
-            JSON.parse(
-              snapshot
-            ),
+            JSON.parse(snapshot),
             encryptionKey,
             salt
           );
@@ -262,9 +263,9 @@ function persist() {
 }
 
 
-// ----------------------------------
-// Lock / unlock
-// ----------------------------------
+// ============================================================
+// Lock screen
+// ============================================================
 
 function showLock() {
   view = 'lock';
@@ -273,67 +274,58 @@ function showLock() {
   base(
     vault
       ? 'Journal locked'
-      : first
+      : firstSequence
         ? 'Repeat your swipes'
         : 'Choose your swipe password',
-
     'Swipe in any direction • 8 swipes'
   );
 
-  screen.className =
-    'lock';
+  screen.className = 'lock';
 
   screen.append(
     el(
       'p',
-
       vault
         ? 'Enter your eight-swipe sequence.'
-        : first
+        : firstSequence
           ? 'Repeat the same eight swipes to confirm.'
           : 'Choose eight directions you can remember.',
-
       'sub'
     ),
 
     el(
       'div',
-      '○'.repeat(LENGTH),
+      '○'.repeat(PASSWORD_LENGTH),
       'dots'
     )
   );
 
-  const row =
+  const directions =
     el(
       'div',
       undefined,
       'directions'
     );
 
-  Object.entries(
-    arrows
-  ).forEach(
-    ([direction, symbol]) => {
-      row.append(
+  Object.entries(arrows)
+    .forEach(([direction, symbol]) => {
+      directions.append(
         button(
           symbol,
-          () =>
-            swipe(direction)
+          () => swipe(direction)
         )
       );
-    }
-  );
+    });
 
   screen.append(
-    row,
+    directions,
 
     button(
       'Start over',
       () => {
         if (busy) return;
 
-        first = null;
-
+        firstSequence = null;
         showLock();
       }
     )
@@ -355,7 +347,7 @@ function showLock() {
 async function unlock() {
   busy = true;
 
-  const seq =
+  const enteredSequence =
     sequence.slice();
 
   say(
@@ -365,37 +357,26 @@ async function unlock() {
   );
 
   try {
-
     if (vault) {
-
       const encryptionKey =
         await derive(
-          seq,
+          enteredSequence,
           un64(vault.salt)
         );
 
       let data;
 
       try {
-
         data =
           await crypto.subtle.decrypt(
             {
               name: 'AES-GCM',
-              iv: un64(
-                vault.iv
-              )
+              iv: un64(vault.iv)
             },
-
             encryptionKey,
-
-            un64(
-              vault.cipher
-            )
+            un64(vault.cipher)
           );
-
       } catch {
-
         failures++;
 
         say(
@@ -403,7 +384,6 @@ async function unlock() {
         );
 
         showLock();
-
         return;
       }
 
@@ -412,21 +392,15 @@ async function unlock() {
           dec.decode(data)
         );
 
-      if (
-        !Array.isArray(
-          entries
-        )
-      ) {
-        throw Error(
+      if (!Array.isArray(entries)) {
+        throw new Error(
           'Invalid journal'
         );
       }
 
-      key =
-        encryptionKey;
+      key = encryptionKey;
 
     } else {
-
       const salt =
         crypto.getRandomValues(
           new Uint8Array(16)
@@ -434,7 +408,7 @@ async function unlock() {
 
       const encryptionKey =
         await derive(
-          seq,
+          enteredSequence,
           salt
         );
 
@@ -455,7 +429,7 @@ async function unlock() {
       entries = [];
     }
 
-    first = null;
+    firstSequence = null;
     failures = 0;
 
     newEntry();
@@ -463,7 +437,6 @@ async function unlock() {
     say('Unlocked');
 
   } catch {
-
     say(
       'Cannot open the journal. Storage or encryption is unavailable.'
     );
@@ -471,7 +444,6 @@ async function unlock() {
     showLock();
 
   } finally {
-
     busy = false;
   }
 }
@@ -479,9 +451,7 @@ async function unlock() {
 async function lock() {
   if (busy) return;
 
-  if (
-    draft?.text.trim()
-  ) {
+  if (draft?.text.trim()) {
     showWriter();
 
     say(
@@ -494,33 +464,27 @@ async function lock() {
   busy = true;
 
   try {
-
-    await saveQueue
-      .catch(() => {});
+    await saveQueue.catch(() => {});
 
     key = null;
     entries = [];
-
     draft = null;
-    first = null;
+    firstSequence = null;
 
     showLock();
-
     say('Locked');
 
   } finally {
-
     busy = false;
   }
 }
 
 
-// ----------------------------------
-// Directional navigation
-// ----------------------------------
+// ============================================================
+// Navigation
+// ============================================================
 
 function swipe(direction) {
-
   if (
     busy ||
     !arrows[direction]
@@ -528,220 +492,169 @@ function swipe(direction) {
     return;
   }
 
-  // Password screen:
-  // all directions belong
-  // to the password.
-
+  // Lock screen uses all four directions.
   if (view === 'lock') {
+    sequence.push(direction);
 
-    sequence.push(
-      direction
-    );
+    const dots =
+      screen.querySelector('.dots');
 
-    screen
-      .querySelector(
-        '.dots'
-      )
-      .textContent =
-
-      '●'.repeat(
-        sequence.length
-      ) +
-
-      '○'.repeat(
-        LENGTH -
-        sequence.length
-      );
+    if (dots) {
+      dots.textContent =
+        '●'.repeat(sequence.length) +
+        '○'.repeat(
+          PASSWORD_LENGTH -
+          sequence.length
+        );
+    }
 
     if (
       sequence.length ===
-      LENGTH
+      PASSWORD_LENGTH
     ) {
-
-      if (
-        !vault &&
-        !first
-      ) {
-
-        first =
-          sequence.slice();
-
-        showLock();
-
-        say(
-          'Repeat to confirm'
-        );
-
-      } else if (
-        !vault &&
-        sequence.join() !==
-        first.join()
-      ) {
-
-        first = null;
-
-        showLock();
-
-        say(
-          'Sequences did not match. Choose again.'
-        );
-
-      } else if (
-        failures >= 5
-      ) {
-
-        busy = true;
-
-        say(
-          'Please wait 15 seconds before trying again.'
-        );
-
-        setTimeout(
-          () => {
-            busy = false;
-            failures = 0;
-
-            showLock();
-
-            say(
-              'Try your sequence again'
-            );
-          },
-          15000
-        );
-
-      } else {
-
-        unlock();
-      }
+      handleCompletedSequence();
     }
 
     return;
   }
 
-  // LEFT = BACK everywhere
-  // after unlocking.
-
-  if (
-    direction ===
-    'ArrowLeft'
-  ) {
+  // Left means back everywhere after unlock.
+  if (direction === 'ArrowLeft') {
     goBack();
-
     return;
   }
 
-  // Writer
-
-  if (
-    view === 'write'
-  ) {
-
-    if (
-      direction ===
-      'ArrowRight'
-    ) {
-
-      saveEntry();
-
-    } else if (
-      direction ===
-      'ArrowUp'
-    ) {
-
-      showMenu();
-
-    } else if (
-      direction ===
-      'ArrowDown'
-    ) {
-
-      screen
-        .querySelector(
-          'textarea'
-        )
-        ?.scrollBy({
-          top: 160
-        });
-    }
-
+  if (view === 'write') {
+    handleWriterSwipe(direction);
     return;
   }
 
-  // Entry reader
-
-  if (
-    view === 'read'
-  ) {
-
-    if (
-      direction ===
-        'ArrowDown' ||
-      direction ===
-        'ArrowUp'
-    ) {
-
-      screen
-        .querySelector(
-          '.entry-text'
-        )
-        ?.scrollBy({
-          top:
-            direction ===
-            'ArrowDown'
-              ? 160
-              : -160
-        });
-    }
-
+  if (view === 'read') {
+    handleReaderSwipe(direction);
     return;
   }
 
-  // Calendar uses drag
-  // instead of swipes.
-
-  if (
-    view === 'date'
-  ) {
+  // Calendar movement uses pointer drag.
+  if (view === 'date') {
     return;
   }
-
-  // Menu / history
 
   if (
     view === 'menu' ||
     view === 'history'
   ) {
-
     if (
-      direction ===
-        'ArrowUp' ||
-      direction ===
-        'ArrowDown'
+      direction === 'ArrowUp' ||
+      direction === 'ArrowDown'
     ) {
-
-      navigate(
-        direction
-      );
+      navigate(direction);
     }
-
-    return;
   }
 }
 
-function navigate(
-  direction
-) {
+function handleCompletedSequence() {
+  if (
+    !vault &&
+    !firstSequence
+  ) {
+    firstSequence =
+      sequence.slice();
 
+    showLock();
+    say('Repeat to confirm');
+
+    return;
+  }
+
+  if (
+    !vault &&
+    sequence.join() !==
+      firstSequence.join()
+  ) {
+    firstSequence = null;
+
+    showLock();
+
+    say(
+      'Sequences did not match. Choose again.'
+    );
+
+    return;
+  }
+
+  if (failures >= 5) {
+    busy = true;
+
+    say(
+      'Please wait 15 seconds before trying again.'
+    );
+
+    setTimeout(
+      () => {
+        busy = false;
+        failures = 0;
+
+        showLock();
+
+        say(
+          'Try your sequence again'
+        );
+      },
+      15000
+    );
+
+    return;
+  }
+
+  unlock();
+}
+
+function handleWriterSwipe(direction) {
+  if (direction === 'ArrowRight') {
+    saveEntry();
+
+  } else if (
+    direction === 'ArrowUp'
+  ) {
+    showMenu();
+
+  } else if (
+    direction === 'ArrowDown'
+  ) {
+    screen
+      .querySelector('textarea')
+      ?.scrollBy({
+        top: 160
+      });
+  }
+}
+
+function handleReaderSwipe(direction) {
+  if (
+    direction !== 'ArrowUp' &&
+    direction !== 'ArrowDown'
+  ) {
+    return;
+  }
+
+  screen
+    .querySelector('.entry-text')
+    ?.scrollBy({
+      top:
+        direction === 'ArrowDown'
+          ? 160
+          : -160
+    });
+}
+
+function navigate(direction) {
   const items = [
     ...screen.querySelectorAll(
       'button,input,textarea'
     )
   ];
 
-  if (
-    !items.length
-  ) {
+  if (!items.length) {
     return;
   }
 
@@ -751,8 +664,7 @@ function navigate(
     );
 
   const delta =
-    direction ===
-    'ArrowUp'
+    direction === 'ArrowUp'
       ? -1
       : 1;
 
@@ -763,119 +675,62 @@ function navigate(
           current +
           delta +
           items.length
-        ) %
-        items.length;
+        ) % items.length;
 
   items[next].focus();
 }
 
 function goBack() {
-
   if (busy) return;
 
-  if (
-    view === 'read'
-  ) {
+  switch (view) {
+    case 'read':
+      showHistory();
+      break;
 
-    showHistory(
-      historyOrigin
-    );
+    case 'history':
+      if (
+        historyState.origin ===
+        'calendar'
+      ) {
+        showDate();
+      } else {
+        showMenu();
+      }
+      break;
 
-  } else if (
-    view === 'history'
-  ) {
-
-    if (
-      historyOrigin ===
-      'calendar'
-    ) {
-
-      showDate();
-
-    } else {
-
-      filter = '';
-      historyFocus = null;
-
+    case 'date':
       showMenu();
-    }
+      break;
 
-  } else if (
-    view === 'date'
-  ) {
+    case 'menu':
+      showWriter();
+      break;
 
-    filter = '';
-    historyFocus = null;
+    case 'write':
+      showMenu();
+      break;
 
-    showMenu();
-
-  } else if (
-    view === 'menu'
-  ) {
-
-    showWriter();
-
-  } else if (
-    view === 'write'
-  ) {
-
-    showMenu();
-
-  } else if (
-    view === 'lock'
-  ) {
-
-    sequence = [];
-
-    showLock();
+    case 'lock':
+      sequence = [];
+      showLock();
+      break;
   }
 }
 
 
-// ----------------------------------
-// Journal editor
-// ----------------------------------
+// ============================================================
+// Journal writer
+// ============================================================
 
 function newEntry() {
-
-  const now =
-    new Date();
-
-  draft = {
-    id:
-      crypto.randomUUID(),
-
-    created:
-      now.toISOString(),
-
-    day:
-      dateKey(now),
-
-    text: ''
-  };
-
+  draft = createDraft();
   showWriter();
 }
 
 function showWriter() {
-
   if (!draft) {
-
-    const now =
-      new Date();
-
-    draft = {
-      id:
-        crypto.randomUUID(),
-
-      created:
-        now.toISOString(),
-
-      day:
-        dateKey(now),
-
-      text: ''
-    };
+    draft = createDraft();
   }
 
   view = 'write';
@@ -885,8 +740,7 @@ function showWriter() {
     '→ Save & clear · ↑ Menu · Pinch to write'
   );
 
-  screen.className =
-    'writer';
+  screen.className = 'writer';
 
   const field =
     el('textarea');
@@ -902,14 +756,12 @@ function showWriter() {
   field.value =
     draft.text;
 
-  const update = () => {
-
+  const updateDraft = () => {
     draft.text =
       field.value;
 
     draft.updated =
-      new Date()
-        .toISOString();
+      new Date().toISOString();
 
     say(
       draft.text.trim()
@@ -920,31 +772,25 @@ function showWriter() {
 
   field.addEventListener(
     'input',
-    update
+    updateDraft
   );
 
   field.addEventListener(
     'change',
-    update
+    updateDraft
   );
 
-  screen.append(
-    field
-  );
-
+  screen.append(field);
   field.focus();
 }
 
 async function saveEntry() {
-
   if (busy) {
     return false;
   }
 
   const field =
-    screen.querySelector(
-      'textarea'
-    );
+    screen.querySelector('textarea');
 
   if (
     !field ||
@@ -956,10 +802,7 @@ async function saveEntry() {
   draft.text =
     field.value;
 
-  if (
-    !draft.text.trim()
-  ) {
-
+  if (!draft.text.trim()) {
     say(
       'Write an entry first.'
     );
@@ -968,75 +811,43 @@ async function saveEntry() {
   }
 
   busy = true;
-
-  field.readOnly =
-    true;
+  field.readOnly = true;
 
   const previous =
     entries.slice();
 
   const saved = {
     ...draft,
-
     updated:
-      new Date()
-        .toISOString()
+      new Date().toISOString()
   };
 
   const index =
     entries.findIndex(
       entry =>
-        entry.id ===
-        saved.id
+        entry.id === saved.id
     );
 
-  if (
-    index < 0
-  ) {
-
-    entries.unshift(
-      saved
-    );
-
+  if (index < 0) {
+    entries.unshift(saved);
   } else {
-
-    entries[index] =
-      saved;
+    entries[index] = saved;
   }
 
   try {
-
     await persist();
 
-    const now =
-      new Date();
-
-    draft = {
-      id:
-        crypto.randomUUID(),
-
-      created:
-        now.toISOString(),
-
-      day:
-        dateKey(now),
-
-      text: ''
-    };
+    draft = createDraft();
 
     field.value = '';
     field.scrollTop = 0;
 
-    say(
-      'Entry saved'
-    );
+    say('Entry saved');
 
     return true;
 
   } catch {
-
-    entries =
-      previous;
+    entries = previous;
 
     say(
       'Not saved. Your entry is still here. Swipe right to retry.'
@@ -1045,21 +856,17 @@ async function saveEntry() {
     return false;
 
   } finally {
-
-    field.readOnly =
-      false;
-
+    field.readOnly = false;
     busy = false;
   }
 }
 
 
-// ----------------------------------
+// ============================================================
 // Main menu
-// ----------------------------------
+// ============================================================
 
 function showMenu() {
-
   view = 'menu';
 
   base(
@@ -1067,43 +874,37 @@ function showMenu() {
     '↑ ↓ Choose · Pinch to open · ← Back'
   );
 
-  screen.className =
-    'menu';
+  screen.className = 'menu';
 
   screen.append(
-
     button(
       'Continue entry',
-
-      () => {
-        showWriter();
-      }
+      showWriter
     ),
 
     button(
       'Previous entries',
-
       () => {
+        historyState = {
+          origin: 'menu',
+          day: null,
+          focus: null
+        };
 
-        filter = '';
-        historyFocus = null;
-
-        showHistory(
-          'menu'
-        );
+        showHistory();
       }
     ),
 
     button(
       'Find a date',
-
       () => {
+        selectedDate = today();
 
-        selectedDate =
-          today();
-
-        filter = '';
-        historyFocus = null;
+        historyState = {
+          origin: 'calendar',
+          day: null,
+          focus: null
+        };
 
         showDate();
       }
@@ -1119,52 +920,45 @@ function showMenu() {
 }
 
 
-// ----------------------------------
-// Previous entries
-// ----------------------------------
+// ============================================================
+// Entry history / reader
+// ============================================================
 
-function showHistory(
-  origin = 'menu'
-) {
-
+function showHistory() {
   view = 'history';
 
-  historyOrigin =
-    origin;
+  const day =
+    historyState.day;
 
   base(
-    filter
+    day
       ? displayDate(
-          filter +
-          'T12:00:00'
+          `${day}T12:00:00`
         )
       : 'Previous entries',
 
     '↑ ↓ Choose · Pinch to read · ← Back'
   );
 
-  screen.className =
-    'history';
+  screen.className = 'history';
 
   const matches =
     entries
+      .filter(entry => {
+        if (!entry.text.trim()) {
+          return false;
+        }
 
-      .filter(
-        entry =>
-          entry.text.trim() &&
-          (
-            !filter ||
-            entry.day ===
-            filter
-          )
-      )
-
+        return (
+          !day ||
+          entry.day === day
+        );
+      })
       .sort(
         (a, b) =>
-          b.created
-            .localeCompare(
-              a.created
-            )
+          b.created.localeCompare(
+            a.created
+          )
       );
 
   const list =
@@ -1174,113 +968,83 @@ function showHistory(
       'list'
     );
 
-  matches.forEach(
-    entry => {
+  matches.forEach(entry => {
+    const row =
+      button(
+        '',
+        () => {
+          historyState.focus =
+            entry.id;
 
-      const row =
-        button(
-          '',
-          () => {
-
-            historyFocus =
-              entry.id;
-
-            showEntry(
-              entry
-            );
-          }
-        );
-
-      row.className =
-        'history-row';
-
-      row.dataset.entryId =
-        entry.id;
-
-      row.append(
-
-        el(
-          'span',
-          displayDate(
-            entry.created
-          ),
-          'entry-date'
-        ),
-
-        el(
-          'span',
-          entry.text.replace(
-            /\s+/g,
-            ' '
-          ),
-          'entry-preview'
-        )
+          showEntry(entry);
+        }
       );
 
-      list.append(
-        row
-      );
-    }
-  );
+    row.className =
+      'history-row';
 
-  if (
-    !matches.length
-  ) {
+    row.dataset.entryId =
+      entry.id;
 
-    list.append(
+    row.append(
+      el(
+        'span',
+        displayDate(entry.created),
+        'entry-date'
+      ),
 
       el(
-        'p',
+        'span',
+        entry.text.replace(
+          /\s+/g,
+          ' '
+        ),
+        'entry-preview'
+      )
+    );
 
-        filter
+    list.append(row);
+  });
+
+  if (!matches.length) {
+    list.append(
+      el(
+        'p',
+        day
           ? 'No entries for this date.'
           : 'No saved entries yet.',
-
         'empty'
       )
     );
   }
 
-  screen.append(
-    list
-  );
+  screen.append(list);
 
-  const target =
-    [
-      ...list
-        .querySelectorAll(
-          'button'
-        )
-    ].find(
-      button =>
-        button.dataset
-          .entryId ===
-        historyFocus
-    );
+  const target = [
+    ...list.querySelectorAll(
+      'button'
+    )
+  ].find(
+    item =>
+      item.dataset.entryId ===
+      historyState.focus
+  );
 
   (
     target ||
-    list.querySelector(
-      'button'
-    )
+    list.querySelector('button')
   )?.focus();
 }
 
-function showEntry(
-  entry
-) {
-
+function showEntry(entry) {
   view = 'read';
 
   base(
-    displayDate(
-      entry.created
-    ),
+    displayDate(entry.created),
     '↑ ↓ Scroll · ← Back'
   );
 
-  screen.className =
-    'reader';
+  screen.className = 'reader';
 
   const text =
     el(
@@ -1296,34 +1060,24 @@ function showEntry(
     'Journal entry'
   );
 
-  screen.append(
-    text
-  );
-
+  screen.append(text);
   text.focus();
 }
 
 
-// ----------------------------------
+// ============================================================
 // Calendar
-// ----------------------------------
+// ============================================================
 
-function selectCalendarDay(
-  dayButton
-) {
-
-  if (
-    !dayButton
-  ) {
+function selectCalendarDay(dayButton) {
+  if (!dayButton) {
     return;
   }
 
   const stamp =
     dayButton.dataset.date;
 
-  if (
-    !stamp
-  ) {
+  if (!stamp) {
     return;
   }
 
@@ -1348,30 +1102,36 @@ function selectCalendarDay(
     .querySelectorAll(
       '.calendar-day.selected'
     )
-    .forEach(
-      button =>
-        button.classList
-          .remove(
-            'selected'
-          )
+    .forEach(item =>
+      item.classList.remove(
+        'selected'
+      )
     );
 
   screen
     .querySelectorAll(
       '[aria-selected="true"]'
     )
-    .forEach(
-      cell =>
-        cell.removeAttribute(
-          'aria-selected'
-        )
+    .forEach(cell =>
+      cell.removeAttribute(
+        'aria-selected'
+      )
     );
 
-  dayButton
-    .classList
-    .add(
-      'selected'
-    );
+  screen
+    .querySelectorAll(
+      '.calendar-day'
+    )
+    .forEach(item => {
+      item.tabIndex =
+        item === dayButton
+          ? 0
+          : -1;
+    });
+
+  dayButton.classList.add(
+    'selected'
+  );
 
   dayButton
     .parentElement
@@ -1380,80 +1140,42 @@ function selectCalendarDay(
       'true'
     );
 
-  dayButton.tabIndex = 0;
-
-  screen
-    .querySelectorAll(
-      '.calendar-day'
-    )
-    .forEach(
-      button => {
-
-        if (
-          button !==
-          dayButton
-        ) {
-
-          button.tabIndex =
-            -1;
-        }
-      }
-    );
-
   dayButton.focus({
     preventScroll: true
   });
 }
 
-function calendarDayAt(
-  x,
-  y
-) {
-
+function calendarDayAt(x, y) {
   return document
-    .elementFromPoint(
-      x,
-      y
-    )
-    ?.closest(
-      '.calendar-day'
-    );
+    .elementFromPoint(x, y)
+    ?.closest('.calendar-day');
 }
 
 function openSelectedDate() {
+  historyState = {
+    origin: 'calendar',
+    day: dateKey(selectedDate),
+    focus: null
+  };
 
-  filter =
-    dateKey(
-      selectedDate
-    );
-
-  historyFocus =
-    null;
-
-  showHistory(
-    'calendar'
-  );
+  showHistory();
 }
 
 function showDate() {
-
   view = 'date';
 
   base(
-    selectedDate
-      .toLocaleDateString(
-        undefined,
-        {
-          month: 'long',
-          year: 'numeric'
-        }
-      ),
-
+    selectedDate.toLocaleDateString(
+      undefined,
+      {
+        month: 'long',
+        year: 'numeric'
+      }
+    ),
     'Drag to choose · Release to open · ← Back'
   );
 
-  screen.className =
-    'calendar';
+  screen.className = 'calendar';
 
   const grid =
     el(
@@ -1492,41 +1214,29 @@ function showDate() {
     'Th',
     'Fr',
     'Sa'
-  ].forEach(
-    label => {
-
-      const day =
-        el(
-          'span',
-          label,
-          'weekday'
-        );
-
-      day.setAttribute(
-        'role',
-        'columnheader'
+  ].forEach(label => {
+    const heading =
+      el(
+        'span',
+        label,
+        'weekday'
       );
 
-      headings.append(
-        day
-      );
-    }
-  );
+    heading.setAttribute(
+      'role',
+      'columnheader'
+    );
 
-  grid.append(
-    headings
-  );
+    headings.append(heading);
+  });
+
+  grid.append(headings);
 
   const start =
     new Date(
-      selectedDate
-        .getFullYear(),
-
-      selectedDate
-        .getMonth(),
-
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
       1,
-
       12
     );
 
@@ -1537,28 +1247,30 @@ function showDate() {
 
   const savedDays =
     new Set(
-
       entries
-
         .filter(
           entry =>
             entry.text.trim()
         )
-
         .map(
           entry =>
             entry.day
         )
     );
 
-  let selected;
+  const todayStamp =
+    dateKey(new Date());
+
+  const selectedStamp =
+    dateKey(selectedDate);
+
+  let selectedButton = null;
 
   for (
     let week = 0;
     week < 6;
     week++
   ) {
-
     const row =
       el(
         'div',
@@ -1576,7 +1288,6 @@ function showDate() {
       day < 7;
       day++
     ) {
-
       const date =
         new Date(start);
 
@@ -1599,12 +1310,9 @@ function showDate() {
 
       const dayButton =
         button(
-          String(
-            date.getDate()
-          ),
-          event => {
-            event?.preventDefault?.();
-          }
+          String(date.getDate()),
+          event =>
+            event?.preventDefault?.()
         );
 
       dayButton.className =
@@ -1613,46 +1321,31 @@ function showDate() {
       dayButton.dataset.date =
         stamp;
 
-      dayButton.tabIndex =
-        -1;
+      dayButton.tabIndex = -1;
 
       dayButton.setAttribute(
         'aria-label',
-
         displayDate(date) +
-
-        (
-          savedDays.has(
-            stamp
+          (
+            savedDays.has(stamp)
+              ? ', has entries'
+              : ''
           )
-            ? ', has entries'
-            : ''
-        )
       );
 
       if (
         date.getMonth() !==
         selectedDate.getMonth()
       ) {
-
-        dayButton
-          .classList
-          .add(
-            'outside-month'
-          );
+        dayButton.classList.add(
+          'outside-month'
+        );
       }
 
-      if (
-        savedDays.has(
-          stamp
-        )
-      ) {
-
-        dayButton
-          .classList
-          .add(
-            'has-entries'
-          );
+      if (savedDays.has(stamp)) {
+        dayButton.classList.add(
+          'has-entries'
+        );
 
         dayButton.append(
           el(
@@ -1663,78 +1356,54 @@ function showDate() {
         );
       }
 
-      if (
-        stamp ===
-        dateKey(
-          new Date()
-        )
-      ) {
-
-        dayButton
-          .setAttribute(
-            'aria-current',
-            'date'
-          );
+      if (stamp === todayStamp) {
+        dayButton.setAttribute(
+          'aria-current',
+          'date'
+        );
       }
 
       if (
         stamp ===
-        dateKey(
-          selectedDate
-        )
+        selectedStamp
       ) {
+        dayButton.tabIndex = 0;
 
-        dayButton.tabIndex =
-          0;
+        dayButton.classList.add(
+          'selected'
+        );
 
-        dayButton
-          .classList
-          .add(
-            'selected'
-          );
+        cell.setAttribute(
+          'aria-selected',
+          'true'
+        );
 
-        cell
-          .setAttribute(
-            'aria-selected',
-            'true'
-          );
-
-        selected =
+        selectedButton =
           dayButton;
       }
 
-      cell.append(
-        dayButton
-      );
-
-      row.append(
-        cell
-      );
+      cell.append(dayButton);
+      row.append(cell);
     }
 
-    grid.append(
-      row
-    );
+    grid.append(row);
   }
 
-  screen.append(
-    grid
-  );
+  screen.append(grid);
 
-  selected?.focus({
+  selectedButton?.focus({
     preventScroll: true
   });
 }
 
 
-// ----------------------------------
-// Keyboard / neural-band events
-// ----------------------------------
+// ============================================================
+// Keyboard / Neural Band events
+// ============================================================
 
 document.addEventListener(
   'keydown',
   event => {
-
     if (
       event.isComposing ||
       event.repeat
@@ -1742,50 +1411,32 @@ document.addEventListener(
       return;
     }
 
-    if (
-      arrows[
-        event.key
-      ]
-    ) {
-
+    if (arrows[event.key]) {
       event.preventDefault();
-
-      swipe(
-        event.key
-      );
-
+      swipe(event.key);
       return;
     }
 
+    const isSelect =
+      event.key === 'Enter' ||
+      event.key === ' ';
+
+    const isTextInput =
+      ['TEXTAREA', 'INPUT']
+        .includes(
+          document.activeElement
+            ?.tagName
+        );
+
     if (
-      (
-        event.key ===
-          'Enter' ||
-
-        event.key ===
-          ' '
-      ) &&
-
-      ![
-        'TEXTAREA',
-        'INPUT'
-      ].includes(
-        document
-          .activeElement
-          ?.tagName
-      )
+      isSelect &&
+      !isTextInput
     ) {
-
       event.preventDefault();
 
-      if (
-        view === 'date'
-      ) {
-
+      if (view === 'date') {
         openSelectedDate();
-
       } else {
-
         document
           .activeElement
           ?.click?.();
@@ -1794,51 +1445,34 @@ document.addEventListener(
       return;
     }
 
-    if (
-      event.key ===
-      'Escape'
-    ) {
-
+    if (event.key === 'Escape') {
       event.preventDefault();
-
       goBack();
     }
   }
 );
 
 
-// ----------------------------------
-// Pointer / drag support
-// ----------------------------------
+// ============================================================
+// Pointer / drag events
+// ============================================================
 
 document.addEventListener(
   'pointerdown',
   event => {
-
     pointer = {
-      x:
-        event.clientX,
-
-      y:
-        event.clientY,
-
-      id:
-        event.pointerId,
-
-      time:
-        performance.now()
+      x: event.clientX,
+      y: event.clientY,
+      id: event.pointerId,
+      time: performance.now()
     };
 
-    calendarDragging =
+    calendarPointerActive =
       view === 'date';
 
-    calendarDragChanged =
-      false;
-
     if (
-      calendarDragging
+      calendarPointerActive
     ) {
-
       const day =
         calendarDayAt(
           event.clientX,
@@ -1846,10 +1480,7 @@ document.addEventListener(
         );
 
       if (day) {
-
-        selectCalendarDay(
-          day
-        );
+        selectCalendarDay(day);
       }
     }
   }
@@ -1858,39 +1489,18 @@ document.addEventListener(
 document.addEventListener(
   'pointermove',
   event => {
-
     if (
       !pointer ||
-      event.pointerId !==
-        pointer.id
+      event.pointerId !== pointer.id
     ) {
       return;
     }
 
     if (
       view !== 'date' ||
-      !calendarDragging
+      !calendarPointerActive
     ) {
       return;
-    }
-
-    const dx =
-      event.clientX -
-      pointer.x;
-
-    const dy =
-      event.clientY -
-      pointer.y;
-
-    if (
-      Math.max(
-        Math.abs(dx),
-        Math.abs(dy)
-      ) > 8
-    ) {
-
-      calendarDragChanged =
-        true;
     }
 
     const day =
@@ -1900,10 +1510,7 @@ document.addEventListener(
       );
 
     if (day) {
-
-      selectCalendarDay(
-        day
-      );
+      selectCalendarDay(day);
     }
   }
 );
@@ -1911,26 +1518,38 @@ document.addEventListener(
 document.addEventListener(
   'pointerup',
   event => {
-
     if (
       !pointer ||
-      event.pointerId !==
-        pointer.id
+      event.pointerId !== pointer.id
     ) {
       return;
     }
 
+    const start = pointer;
+
+    pointer = null;
+
+    const wasCalendarPointer =
+      calendarPointerActive;
+
+    calendarPointerActive =
+      false;
+
+    if (wasCalendarPointer) {
+      suppressNextClick();
+      openSelectedDate();
+      return;
+    }
+
     const dx =
-      event.clientX -
-      pointer.x;
+      event.clientX - start.x;
 
     const dy =
-      event.clientY -
-      pointer.y;
+      event.clientY - start.y;
 
     const elapsed =
       performance.now() -
-      pointer.time;
+      start.time;
 
     const distance =
       Math.max(
@@ -1938,124 +1557,67 @@ document.addEventListener(
         Math.abs(dy)
       );
 
-    const wasCalendarDrag =
-      calendarDragging;
-
-    pointer = null;
-    calendarDragging = false;
-
-    // Calendar:
-    // highlighted date opens
-    // immediately on release.
-
-    if (
-      wasCalendarDrag
-    ) {
-
-      suppressClick =
-        true;
-
-      setTimeout(
-        () => {
-          suppressClick =
-            false;
-        },
-        350
-      );
-
-      calendarDragChanged =
-        false;
-
-      openSelectedDate();
-
+    if (distance < 45) {
       return;
     }
 
-    calendarDragChanged =
-      false;
+    suppressNextClick();
 
-    if (
-      distance < 45
-    ) {
+    if (elapsed >= 700) {
       return;
     }
 
-    suppressClick = true;
+    const direction =
+      Math.abs(dx) >
+      Math.abs(dy)
+        ? (
+            dx > 0
+              ? 'ArrowRight'
+              : 'ArrowLeft'
+          )
+        : (
+            dy > 0
+              ? 'ArrowDown'
+              : 'ArrowUp'
+          );
 
-    setTimeout(
-      () => {
-        suppressClick =
-          false;
-      },
-      350
-    );
-
-    // Normal deliberate swipe.
-
-    if (
-      elapsed < 700
-    ) {
-
-      swipe(
-        Math.abs(dx) >
-        Math.abs(dy)
-
-          ? dx > 0
-            ? 'ArrowRight'
-            : 'ArrowLeft'
-
-          : dy > 0
-            ? 'ArrowDown'
-            : 'ArrowUp'
-      );
-    }
+    swipe(direction);
   }
 );
 
 document.addEventListener(
   'pointercancel',
   () => {
-
     pointer = null;
-
-    calendarDragging =
-      false;
-
-    calendarDragChanged =
-      false;
+    calendarPointerActive = false;
   }
 );
 
 document.addEventListener(
   'click',
   event => {
-
-    if (
-      suppressClick
-    ) {
-
-      event.preventDefault();
-
-      event.stopImmediatePropagation();
+    if (!suppressClick) {
+      return;
     }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
   },
   true
 );
 
 
-// ----------------------------------
+// ============================================================
 // Lifecycle
-// ----------------------------------
+// ============================================================
 
 window.addEventListener(
   'pagehide',
   () => {
-
     key = null;
     entries = [];
-
     draft = null;
-    first = null;
+    firstSequence = null;
 
     showLock();
   }
@@ -2064,41 +1626,31 @@ window.addEventListener(
 window.addEventListener(
   'storage',
   event => {
-
-    if (
-      event.key ===
-      STORE
-    ) {
-
+    if (event.key === STORE) {
       location.reload();
     }
   }
 );
 
 
-// ----------------------------------
+// ============================================================
 // Startup
-// ----------------------------------
+// ============================================================
 
 $('date').textContent =
-  new Date()
-    .toLocaleDateString(
-      undefined,
-      {
-        month: 'short',
-        day: 'numeric'
-      }
-    );
+  new Date().toLocaleDateString(
+    undefined,
+    {
+      month: 'short',
+      day: 'numeric'
+    }
+  );
 
 try {
-
   const raw =
-    localStorage.getItem(
-      STORE
-    );
+    localStorage.getItem(STORE);
 
   if (raw) {
-
     vault =
       JSON.parse(raw);
 
@@ -2108,18 +1660,14 @@ try {
       !vault.iv ||
       !vault.cipher
     ) {
-
-      throw Error(
+      throw new Error(
         'Invalid vault'
       );
     }
   }
 
-  if (
-    !crypto.subtle
-  ) {
-
-    throw Error(
+  if (!crypto.subtle) {
+    throw new Error(
       'Encryption unavailable'
     );
   }
@@ -2127,10 +1675,8 @@ try {
   showLock();
 
 } catch {
-
   base(
-    'Journal unavailable',
-    ''
+    'Journal unavailable'
   );
 
   screen.append(
