@@ -1,39 +1,849 @@
 'use strict';
-const $=id=>document.getElementById(id), screen=$('screen'), hint=$('hint'), status=$('status');
-const STORE='neural-journal-v1', LENGTH=8, enc=new TextEncoder(), dec=new TextDecoder();
-let vault=null,key=null,entries=[],view='lock',sequence=[],first=null,busy=false,draft=null,saveQueue=Promise.resolve(),selectedDate=new Date(),datePart=0,page=0,filter='',failures=0;
-const arrows={ArrowUp:'↑',ArrowDown:'↓',ArrowLeft:'←',ArrowRight:'→'};
-const b64=a=>btoa(String.fromCharCode(...new Uint8Array(a)));
-const un64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-const dateKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-const displayDate=d=>new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
-const say=s=>status.textContent=s;
-function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
-function button(label,action,small){const b=el('button',label);if(small)b.append(el('small',small));b.onclick=action;return b;}
-function base(title,instruction){screen.replaceChildren();screen.className='';hint.textContent=instruction;if(title)screen.append(el('h1',title));}
-function focusFirst(){screen.querySelector('textarea,input,button')?.focus();}
-async function derive(seq,salt){const material=await crypto.subtle.importKey('raw',enc.encode(seq.join(',')),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:600000,hash:'SHA-256'},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
-async function encrypt(data,k,salt){const iv=crypto.getRandomValues(new Uint8Array(12));return {version:1,salt,iv:b64(iv),cipher:b64(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,enc.encode(JSON.stringify(data))))};}
-function persist(){const snapshot=JSON.stringify(entries),k=key,salt=vault.salt;say('Saving…');saveQueue=saveQueue.catch(()=>{}).then(async()=>{const next=await encrypt(JSON.parse(snapshot),k,salt);localStorage.setItem(STORE,JSON.stringify(next));vault=next;say('Saved on this device');});saveQueue.catch(()=>say('Not saved. Keep this page open and try again.'));return saveQueue;}
-function showLock(){view='lock';sequence=[];base(vault?'Journal locked':first?'Repeat your swipes':'Choose your swipe password','Swipe in any direction • 8 swipes');screen.className='lock';screen.append(el('p',vault?'Enter your eight-swipe sequence.':first?'Repeat the same eight swipes to confirm.':'Choose eight directions you can remember.','sub'),el('div','○'.repeat(LENGTH),'dots'));const row=el('div',undefined,'directions');Object.entries(arrows).forEach(([a,s])=>row.append(button(s,()=>swipe(a))));screen.append(row,button('Start over',()=>{first=null;showLock();}));if(!vault)screen.append(el('p','Your sequence encrypts your journal. Forgotten sequences cannot be recovered.','sub'));focusFirst();}
-async function unlock(){busy=true;const seq=sequence.slice();say(vault?'Unlocking…':'Creating your journal…');try{if(vault){const k=await derive(seq,un64(vault.salt));let data;try{data=await crypto.subtle.decrypt({name:'AES-GCM',iv:un64(vault.iv)},k,un64(vault.cipher));}catch{failures++;say('Sequence not recognized. Try again.');showLock();return;}entries=JSON.parse(dec.decode(data));if(!Array.isArray(entries))throw Error('Invalid journal');key=k;}else{const salt=crypto.getRandomValues(new Uint8Array(16));const k=await derive(seq,salt);const next=await encrypt([],k,b64(salt));localStorage.setItem(STORE,JSON.stringify(next));vault=next;key=k;entries=[];}first=null;failures=0;say('Unlocked');newEntry();}catch{say('Cannot open the journal. Storage or encryption is unavailable.');showLock();}finally{busy=false;}}
-function swipe(a){if(busy)return;if(view==='lock'){sequence.push(a);screen.querySelector('.dots').textContent='●'.repeat(sequence.length)+'○'.repeat(LENGTH-sequence.length);if(sequence.length===LENGTH){if(!vault&&!first){first=sequence.slice();showLock();say('Repeat to confirm');}else if(!vault&&sequence.join()!==first.join()){first=null;showLock();say('Sequences did not match. Choose again.');}else{if(failures>=5){busy=true;say('Please wait 15 seconds before trying again.');setTimeout(()=>{busy=false;showLock();say('Try your sequence again');},15000);}else unlock();}}return;}if(view==='write'&&a==='ArrowUp'){showMenu();return;}if(view==='read'){if(a==='ArrowDown'||a==='ArrowUp'){const t=screen.querySelector('.entry-text');t.scrollBy({top:a==='ArrowDown'?160:-160});return;}}if(view==='date'){const fields=[...screen.querySelectorAll('.search-fields button')];const part=fields.indexOf(document.activeElement);if(part>=0&&(a==='ArrowUp'||a==='ArrowDown')){datePart=part;changeDate(a==='ArrowUp'?1:-1);return;}}navigate(a);}
-function navigate(a){const items=[...screen.querySelectorAll('button,input,textarea')];const at=items.indexOf(document.activeElement),delta=(a==='ArrowUp'||a==='ArrowLeft')?-1:1;items[(at+delta+items.length)%items.length]?.focus();}
-function newEntry(){draft={id:crypto.randomUUID(),created:new Date().toISOString(),day:dateKey(new Date()),text:''};showWriter();}
-function showWriter(){view='write';base('New entry','↑ Menu · Pinch the entry to handwrite');screen.append(el('p',displayDate(draft.created),'sub'));const t=el('textarea');t.placeholder='What’s on your mind?';t.setAttribute('aria-label','Journal entry. Pinch to handwrite or dictate.');t.value=draft.text;const update=()=>{if(draft.text===t.value)return;draft.text=t.value;draft.updated=new Date().toISOString();const i=entries.findIndex(e=>e.id===draft.id);if(i<0&&draft.text.trim())entries.unshift(draft);else if(i>=0)entries[i]=draft;persist();};t.addEventListener('input',update);t.addEventListener('change',update);screen.append(t,button('↑ Menu',showMenu));t.focus();}
-function showMenu(){view='menu';base('Journal','Swipe to choose · Pinch to open');screen.append(button('Continue entry',showWriter),button('Previous entries',()=>{filter='';page=0;showHistory();},`${entries.filter(e=>e.text.trim()).length} saved entries`),button('Find a date',()=>{datePart=0;showDate();}),button('New entry',newEntry),button('Lock journal',lock));focusFirst();}
-async function lock(){if(busy)return;busy=true;try{await saveQueue;key=null;entries=[];draft=null;first=null;showLock();say('Locked');}catch{say('Not saved. Journal remains open.');}finally{busy=false;}}
-function showHistory(){view='history';base(filter?displayDate(filter+'T12:00:00'):'Previous entries','Swipe to choose · Pinch to read');const matches=entries.filter(e=>e.text.trim()&&(!filter||e.day===filter)).sort((a,b)=>b.created.localeCompare(a.created));const list=el('div',undefined,'list');matches.slice(page*3,page*3+3).forEach(e=>list.append(button(e.text.slice(0,60)+(e.text.length>60?'…':''),()=>showEntry(e),displayDate(e.created)+' · '+new Date(e.created).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}))));if(!matches.length)list.append(el('p',filter?'No entries for this date.':'Your entries will appear here.','empty'));screen.append(list);const row=el('div',undefined,'row');if(page>0)row.append(button('Previous',()=>{page--;showHistory();}));if((page+1)*3<matches.length)row.append(button('More',()=>{page++;showHistory();}));screen.append(row,button('Back to menu',showMenu));focusFirst();}
-function showEntry(e){view='read';base(displayDate(e.created),'↑ ↓ Scroll · Pinch to go back');screen.append(el('div',e.text,'entry-text'),button('Back to entries',showHistory));focusFirst();}
-function changeDate(delta){const y=selectedDate.getFullYear(),m=selectedDate.getMonth(),d=selectedDate.getDate();if(datePart===2)selectedDate.setDate(d+delta);else{selectedDate.setDate(1);if(datePart===0)selectedDate.setFullYear(y+delta);else selectedDate.setMonth(m+delta);const last=new Date(selectedDate.getFullYear(),selectedDate.getMonth()+1,0).getDate();selectedDate.setDate(Math.min(d,last));}showDate();}
-function showDate(){view='date';base('Find a date','← → Choose year / month / day · ↑ ↓ Change');const row=el('div',undefined,'search-fields');['Year','Month','Day'].forEach((label,i)=>{const values=[selectedDate.getFullYear(),selectedDate.toLocaleDateString(undefined,{month:'short'}),selectedDate.getDate()];const b=button(String(values[i]),()=>{datePart=i;changeDate(1);},label);if(i===datePart)b.className='selected';row.append(b);});screen.append(row);const controls=el('div',undefined,'row');controls.append(button('−',()=>changeDate(-1)),button('+',()=>changeDate(1)));screen.append(controls,button('Show entries',()=>{filter=dateKey(selectedDate);page=0;showHistory();}),button('Back to menu',showMenu));screen.querySelectorAll('.search-fields button')[datePart].focus();}
-document.addEventListener('keydown',e=>{if(e.isComposing||e.repeat)return;if(arrows[e.key]){e.preventDefault();swipe(e.key);}else if(e.key==='Enter'&&!['TEXTAREA','INPUT'].includes(document.activeElement.tagName)){e.preventDefault();document.activeElement.click();}else if(e.key==='Escape'){e.preventDefault();if(key)showMenu();else showLock();}});
-let pointer=null,suppressClick=false;
-document.addEventListener('pointerdown',e=>{pointer={x:e.clientX,y:e.clientY,id:e.pointerId};});
-document.addEventListener('pointerup',e=>{if(!pointer||e.pointerId!==pointer.id)return;const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;pointer=null;if(Math.max(Math.abs(dx),Math.abs(dy))<45)return;suppressClick=true;setTimeout(()=>suppressClick=false,350);swipe(Math.abs(dx)>Math.abs(dy)?dx>0?'ArrowRight':'ArrowLeft':dy>0?'ArrowDown':'ArrowUp');});
-document.addEventListener('pointercancel',()=>pointer=null);
-document.addEventListener('click',e=>{if(suppressClick){e.preventDefault();e.stopImmediatePropagation();}},true);
-window.addEventListener('pagehide',()=>{key=null;entries=[];draft=null;first=null;showLock();});
-window.addEventListener('storage',e=>{if(e.key===STORE){location.reload();}});
-$('date').textContent=new Date().toLocaleDateString(undefined,{month:'short',day:'numeric'});
-try{const raw=localStorage.getItem(STORE);if(raw){vault=JSON.parse(raw);if(vault.version!==1||!vault.salt||!vault.iv||!vault.cipher)throw Error('Invalid vault');}if(!crypto.subtle)throw Error('Encryption unavailable');showLock();}catch{base('Journal unavailable','');screen.append(el('p','Encrypted storage could not be opened. Try a supported browser over HTTPS. Existing data has not been changed.'));}
+
+const $ = id => document.getElementById(id);
+const screen = $('screen');
+const hint = $('hint');
+const status = $('status');
+
+const STORE = 'neural-journal-v1';
+const LENGTH = 8;
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+let vault = null;
+let key = null;
+let entries = [];
+let view = 'lock';
+let sequence = [];
+let first = null;
+let busy = false;
+let draft = null;
+let saveQueue = Promise.resolve();
+let selectedDate = new Date();
+let historyFocus = null;
+let filter = '';
+let failures = 0;
+
+const arrows = {
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→'
+};
+
+const b64 = value =>
+  btoa(String.fromCharCode(...new Uint8Array(value)));
+
+const un64 = value =>
+  Uint8Array.from(atob(value), character => character.charCodeAt(0));
+
+const dateKey = date =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const displayDate = date =>
+  new Date(date).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+
+const say = message => {
+  status.textContent = message;
+};
+
+// Elements
+
+function el(tag, text, className) {
+  const element = document.createElement(tag);
+
+  if (text !== undefined) element.textContent = text;
+  if (className) element.className = className;
+
+  return element;
+}
+
+function button(label, action, small) {
+  const element = el('button', label);
+
+  if (small) element.append(el('small', small));
+
+  element.onclick = action;
+  return element;
+}
+
+function base(title, instruction) {
+  screen.replaceChildren();
+  screen.className = '';
+  hint.textContent = instruction;
+
+  if (title) screen.append(el('h1', title));
+}
+
+function focusFirst() {
+  screen.querySelector('textarea,input,button')?.focus();
+}
+
+// Encrypted storage
+
+async function derive(seq, salt) {
+  const material = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(seq.join(',')),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 600000,
+      hash: 'SHA-256'
+    },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encrypt(data, encryptionKey, salt) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const cipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    encryptionKey,
+    enc.encode(JSON.stringify(data))
+  );
+
+  return {
+    version: 1,
+    salt,
+    iv: b64(iv),
+    cipher: b64(cipher)
+  };
+}
+
+function persist() {
+  const snapshot = JSON.stringify(entries);
+  const encryptionKey = key;
+  const salt = vault.salt;
+
+  say('Saving…');
+
+  saveQueue = saveQueue.catch(() => {}).then(async () => {
+    const next = await encrypt(
+      JSON.parse(snapshot),
+      encryptionKey,
+      salt
+    );
+
+    localStorage.setItem(STORE, JSON.stringify(next));
+    vault = next;
+
+    say('Saved on this device');
+  });
+
+  saveQueue.catch(() => {
+    say('Not saved. Keep this page open and try again.');
+  });
+
+  return saveQueue;
+}
+
+// Lock and unlock
+
+function showLock() {
+  view = 'lock';
+  sequence = [];
+
+  base(
+    vault
+      ? 'Journal locked'
+      : first
+        ? 'Repeat your swipes'
+        : 'Choose your swipe password',
+    'Swipe in any direction • 8 swipes'
+  );
+
+  screen.className = 'lock';
+
+  screen.append(
+    el(
+      'p',
+      vault
+        ? 'Enter your eight-swipe sequence.'
+        : first
+          ? 'Repeat the same eight swipes to confirm.'
+          : 'Choose eight directions you can remember.',
+      'sub'
+    ),
+    el('div', '○'.repeat(LENGTH), 'dots')
+  );
+
+  const row = el('div', undefined, 'directions');
+
+  Object.entries(arrows).forEach(([direction, symbol]) => {
+    row.append(button(symbol, () => swipe(direction)));
+  });
+
+  screen.append(
+    row,
+    button('Start over', () => {
+      first = null;
+      showLock();
+    })
+  );
+
+  if (!vault) {
+    screen.append(
+      el(
+        'p',
+        'Your sequence encrypts your journal. Forgotten sequences cannot be recovered.',
+        'sub'
+      )
+    );
+  }
+
+  focusFirst();
+}
+
+async function unlock() {
+  busy = true;
+  const seq = sequence.slice();
+
+  say(vault ? 'Unlocking…' : 'Creating your journal…');
+
+  try {
+    if (vault) {
+      const encryptionKey = await derive(seq, un64(vault.salt));
+      let data;
+
+      try {
+        data = await crypto.subtle.decrypt(
+          {
+            name: 'AES-GCM',
+            iv: un64(vault.iv)
+          },
+          encryptionKey,
+          un64(vault.cipher)
+        );
+      } catch {
+        failures++;
+        say('Sequence not recognized. Try again.');
+        showLock();
+        return;
+      }
+
+      entries = JSON.parse(dec.decode(data));
+
+      if (!Array.isArray(entries)) {
+        throw Error('Invalid journal');
+      }
+
+      key = encryptionKey;
+    } else {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const encryptionKey = await derive(seq, salt);
+      const next = await encrypt([], encryptionKey, b64(salt));
+
+      localStorage.setItem(STORE, JSON.stringify(next));
+
+      vault = next;
+      key = encryptionKey;
+      entries = [];
+    }
+
+    first = null;
+    failures = 0;
+
+    say('Unlocked');
+    newEntry();
+  } catch {
+    say('Cannot open the journal. Storage or encryption is unavailable.');
+    showLock();
+  } finally {
+    busy = false;
+  }
+}
+
+async function lock() {
+  if (busy) return;
+
+  if (draft?.text.trim()) {
+    showWriter();
+    say('Save your entry before locking.');
+    return;
+  }
+
+  busy = true;
+
+  try {
+    await saveQueue.catch(() => {});
+
+    key = null;
+    entries = [];
+    draft = null;
+    first = null;
+
+    showLock();
+    say('Locked');
+  } finally {
+    busy = false;
+  }
+}
+
+// Directional navigation
+
+function swipe(direction) {
+  if (busy) return;
+
+  if (view === 'lock') {
+    sequence.push(direction);
+
+    screen.querySelector('.dots').textContent =
+      '●'.repeat(sequence.length) +
+      '○'.repeat(LENGTH - sequence.length);
+
+    if (sequence.length === LENGTH) {
+      if (!vault && !first) {
+        first = sequence.slice();
+        showLock();
+        say('Repeat to confirm');
+      } else if (!vault && sequence.join() !== first.join()) {
+        first = null;
+        showLock();
+        say('Sequences did not match. Choose again.');
+      } else if (failures >= 5) {
+        busy = true;
+        say('Please wait 15 seconds before trying again.');
+
+        setTimeout(() => {
+          busy = false;
+          showLock();
+          say('Try your sequence again');
+        }, 15000);
+      } else {
+        unlock();
+      }
+    }
+
+    return;
+  }
+
+  if (view === 'write' && direction === 'ArrowUp') {
+    showMenu();
+    return;
+  }
+
+  if (
+    view === 'read' &&
+    (direction === 'ArrowDown' || direction === 'ArrowUp')
+  ) {
+    screen.querySelector('.entry-text').scrollBy({
+      top: direction === 'ArrowDown' ? 160 : -160
+    });
+
+    return;
+  }
+
+  if (view === 'date') {
+    changeDate({
+      ArrowLeft: -1,
+      ArrowRight: 1,
+      ArrowUp: -7,
+      ArrowDown: 7
+    }[direction]);
+
+    return;
+  }
+
+  navigate(direction);
+}
+
+function navigate(direction) {
+  const items = [
+    ...screen.querySelectorAll('button,input,textarea')
+  ];
+
+  const current = items.indexOf(document.activeElement);
+  const delta =
+    direction === 'ArrowUp' || direction === 'ArrowLeft'
+      ? -1
+      : 1;
+
+  items[
+    (current + delta + items.length) % items.length
+  ]?.focus();
+}
+
+function goBack() {
+  if (busy) return;
+
+  if (view === 'read') {
+    showHistory();
+  } else if (view === 'history') {
+    if (filter) showDate();
+    else showMenu();
+  } else if (view === 'date') {
+    showMenu();
+  } else if (view === 'menu') {
+    showWriter();
+  } else if (view === 'write') {
+    showMenu();
+  } else if (view === 'lock') {
+    sequence = [];
+    showLock();
+  }
+}
+
+// Journal editor
+
+function newEntry() {
+  draft = {
+    id: crypto.randomUUID(),
+    created: new Date().toISOString(),
+    day: dateKey(new Date()),
+    text: ''
+  };
+
+  showWriter();
+}
+
+function showWriter() {
+  view = 'write';
+
+  base('New entry', '↑ Menu · ↓ Save · Pinch to select');
+  screen.className = 'writer';
+
+  const field = el('textarea');
+
+  field.placeholder = 'What’s on your mind?';
+  field.setAttribute(
+    'aria-label',
+    'Journal entry. Pinch to handwrite or dictate.'
+  );
+  field.value = draft.text;
+
+  const update = () => {
+    draft.text = field.value;
+    draft.updated = new Date().toISOString();
+
+    say(draft.text.trim() ? 'Unsaved entry' : '');
+  };
+
+  field.addEventListener('input', update);
+  field.addEventListener('change', update);
+
+  const save = button('Save entry', saveEntry);
+  save.className = 'save-entry';
+
+  screen.append(field, save);
+  field.focus();
+}
+
+async function saveEntry() {
+  if (busy) return false;
+
+  if (!draft.text.trim()) {
+    say('Write an entry first.');
+    return false;
+  }
+
+  busy = true;
+
+  const field = screen.querySelector('textarea');
+  if (field) field.disabled = true;
+
+  screen.querySelectorAll('button').forEach(button => {
+    button.disabled = true;
+  });
+
+  const previous = entries.slice();
+
+  const saved = {
+    ...draft,
+    updated: new Date().toISOString()
+  };
+
+  const index = entries.findIndex(entry => entry.id === saved.id);
+
+  if (index < 0) entries.unshift(saved);
+  else entries[index] = saved;
+
+  try {
+    await persist();
+
+    newEntry();
+    say('Entry saved');
+
+    return true;
+  } catch {
+    entries = previous;
+
+    say('Not saved. Your entry is still here. Try Save again.');
+
+    if (field) field.disabled = false;
+
+    screen.querySelectorAll('button').forEach(button => {
+      button.disabled = false;
+    });
+
+    return false;
+  } finally {
+    busy = false;
+  }
+}
+
+// Main menu
+
+function showMenu() {
+  view = 'menu';
+
+  base(
+    'Journal',
+    'Swipe to choose · Pinch to open · Middle-finger tap: back'
+  );
+
+  screen.className = 'menu';
+
+  screen.append(
+    button('Continue entry', showWriter),
+
+    button('Previous entries', () => {
+      filter = '';
+      historyFocus = null;
+      showHistory();
+    }),
+
+    button('Find a date', showDate),
+    button('Lock journal', lock)
+  );
+
+  focusFirst();
+}
+
+// Previous entries
+
+function showHistory() {
+  view = 'history';
+
+  base(
+    filter
+      ? displayDate(filter + 'T12:00:00')
+      : 'Previous entries',
+    '↑ ↓ Choose · Pinch to read · Middle-finger tap: back'
+  );
+
+  screen.className = 'history';
+
+  const matches = entries
+    .filter(entry =>
+      entry.text.trim() &&
+      (!filter || entry.day === filter)
+    )
+    .sort((a, b) => b.created.localeCompare(a.created));
+
+  const list = el('div', undefined, 'list');
+
+  matches.forEach(entry => {
+    const row = button('', () => {
+      historyFocus = entry.id;
+      showEntry(entry);
+    });
+
+    row.className = 'history-row';
+    row.dataset.entryId = entry.id;
+
+    row.append(
+      el('span', displayDate(entry.created), 'entry-date'),
+      el(
+        'span',
+        entry.text.replace(/\s+/g, ' '),
+        'entry-preview'
+      )
+    );
+
+    list.append(row);
+  });
+
+  if (!matches.length) {
+    list.append(
+      el(
+        'p',
+        filter
+          ? 'No entries for this date.'
+          : 'No saved entries yet.',
+        'empty'
+      )
+    );
+  }
+
+  screen.append(list);
+
+  const target = [...list.querySelectorAll('button')]
+    .find(button => button.dataset.entryId === historyFocus);
+
+  (target || list.querySelector('button'))?.focus();
+}
+
+function showEntry(entry) {
+  view = 'read';
+
+  base(
+    displayDate(entry.created),
+    '↑ ↓ Scroll · Middle-finger tap: back'
+  );
+
+  screen.className = 'reader';
+
+  const text = el('div', entry.text, 'entry-text');
+
+  text.tabIndex = 0;
+  text.setAttribute('aria-label', 'Journal entry');
+
+  screen.append(text);
+  text.focus();
+}
+
+// Calendar
+
+function changeDate(days) {
+  selectedDate.setDate(selectedDate.getDate() + days);
+  showDate();
+}
+
+function showDate() {
+  view = 'date';
+
+  base(
+    selectedDate.toLocaleDateString(undefined, {
+      month: 'long',
+      year: 'numeric'
+    }),
+    '← → Day · ↑ ↓ Week · Pinch to open · Middle-finger tap: back'
+  );
+
+  screen.className = 'calendar';
+
+  const grid = el('div', undefined, 'calendar-grid');
+
+  grid.setAttribute('role', 'grid');
+  grid.setAttribute('aria-label', 'Choose a journal date');
+
+  const headings = el('div', undefined, 'calendar-week');
+  headings.setAttribute('role', 'row');
+
+  ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].forEach(label => {
+    const day = el('span', label, 'weekday');
+
+    day.setAttribute('role', 'columnheader');
+    headings.append(day);
+  });
+
+  grid.append(headings);
+
+  const start = new Date(
+    selectedDate.getFullYear(),
+    selectedDate.getMonth(),
+    1,
+    12
+  );
+
+  start.setDate(start.getDate() - start.getDay());
+
+  const savedDays = new Set(
+    entries
+      .filter(entry => entry.text.trim())
+      .map(entry => entry.day)
+  );
+
+  let selected;
+
+  for (let week = 0; week < 6; week++) {
+    const row = el('div', undefined, 'calendar-week');
+    row.setAttribute('role', 'row');
+
+    for (let day = 0; day < 7; day++) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + week * 7 + day);
+
+      const stamp = dateKey(date);
+      const cell = el('div');
+
+      cell.setAttribute('role', 'gridcell');
+
+      const dayButton = button(String(date.getDate()), () => {
+        selectedDate = new Date(date);
+        filter = stamp;
+        historyFocus = null;
+
+        showHistory();
+      });
+
+      dayButton.className = 'calendar-day';
+      dayButton.tabIndex = -1;
+
+      dayButton.setAttribute(
+        'aria-label',
+        displayDate(date) +
+          (savedDays.has(stamp) ? ', has entries' : '')
+      );
+
+      if (date.getMonth() !== selectedDate.getMonth()) {
+        dayButton.classList.add('outside-month');
+      }
+
+      if (savedDays.has(stamp)) {
+        dayButton.classList.add('has-entries');
+        dayButton.append(el('span', '•', 'entry-dot'));
+      }
+
+      if (stamp === dateKey(new Date())) {
+        dayButton.setAttribute('aria-current', 'date');
+      }
+
+      if (stamp === dateKey(selectedDate)) {
+        dayButton.tabIndex = 0;
+        dayButton.classList.add('selected');
+
+        cell.setAttribute('aria-selected', 'true');
+        selected = dayButton;
+      }
+
+      cell.append(dayButton);
+      row.append(cell);
+    }
+
+    grid.append(row);
+  }
+
+  screen.append(grid);
+  selected?.focus();
+}
+
+// Neural-band / keyboard events
+
+document.addEventListener('keydown', event => {
+  if (event.isComposing || event.repeat) return;
+
+  if (arrows[event.key]) {
+    event.preventDefault();
+    swipe(event.key);
+  } else if (
+    event.key === 'Enter' &&
+    !['TEXTAREA', 'INPUT'].includes(document.activeElement.tagName)
+  ) {
+    event.preventDefault();
+    document.activeElement?.click?.();
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    goBack();
+  }
+});
+
+// Touch / pointer swipe support
+
+let pointer = null;
+let suppressClick = false;
+
+document.addEventListener('pointerdown', event => {
+  pointer = {
+    x: event.clientX,
+    y: event.clientY,
+    id: event.pointerId
+  };
+});
+
+document.addEventListener('pointerup', event => {
+  if (!pointer || event.pointerId !== pointer.id) return;
+
+  const dx = event.clientX - pointer.x;
+  const dy = event.clientY - pointer.y;
+
+  pointer = null;
+
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 45) return;
+
+  suppressClick = true;
+
+  setTimeout(() => {
+    suppressClick = false;
+  }, 350);
+
+  swipe(
+    Math.abs(dx) > Math.abs(dy)
+      ? dx > 0
+        ? 'ArrowRight'
+        : 'ArrowLeft'
+      : dy > 0
+        ? 'ArrowDown'
+        : 'ArrowUp'
+  );
+});
+
+document.addEventListener('pointercancel', () => {
+  pointer = null;
+});
+
+document.addEventListener('click', event => {
+  if (suppressClick) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+}, true);
+
+// Lifecycle
+
+window.addEventListener('pagehide', () => {
+  key = null;
+  entries = [];
+  draft = null;
+  first = null;
+
+  showLock();
+});
+
+window.addEventListener('storage', event => {
+  if (event.key === STORE) location.reload();
+});
+
+// Startup
+
+$('date').textContent = new Date().toLocaleDateString(
+  undefined,
+  { month: 'short', day: 'numeric' }
+);
+
+try {
+  const raw = localStorage.getItem(STORE);
+
+  if (raw) {
+    vault = JSON.parse(raw);
+
+    if (
+      vault.version !== 1 ||
+      !vault.salt ||
+      !vault.iv ||
+      !vault.cipher
+    ) {
+      throw Error('Invalid vault');
+    }
+  }
+
+  if (!crypto.subtle) {
+    throw Error('Encryption unavailable');
+  }
+
+  showLock();
+} catch {
+  base('Journal unavailable', '');
+
+  screen.append(
+    el(
+      'p',
+      'Encrypted storage could not be opened. Try a supported browser over HTTPS. Existing data has not been changed.'
+    )
+  );
+}
