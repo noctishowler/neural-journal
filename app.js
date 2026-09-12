@@ -102,7 +102,10 @@ async function derive(seq, salt) {
       hash: 'SHA-256'
     },
     material,
-    { name: 'AES-GCM', length: 256 },
+    {
+      name: 'AES-GCM',
+      length: 256
+    },
     false,
     ['encrypt', 'decrypt']
   );
@@ -112,7 +115,10 @@ async function encrypt(data, encryptionKey, salt) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
   const cipher = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    {
+      name: 'AES-GCM',
+      iv
+    },
     encryptionKey,
     enc.encode(JSON.stringify(data))
   );
@@ -332,8 +338,19 @@ function swipe(direction) {
     return;
   }
 
-  if (view === 'write' && direction === 'ArrowUp') {
-    showMenu();
+  if (view === 'write') {
+    if (direction === 'ArrowRight') {
+      saveEntry();
+    } else if (direction === 'ArrowUp') {
+      showMenu();
+    } else if (direction === 'ArrowLeft') {
+      screen.querySelector('textarea')?.focus();
+    } else if (direction === 'ArrowDown') {
+      screen.querySelector('textarea')?.scrollBy({
+        top: 160
+      });
+    }
+
     return;
   }
 
@@ -368,6 +385,7 @@ function navigate(direction) {
   ];
 
   const current = items.indexOf(document.activeElement);
+
   const delta =
     direction === 'ArrowUp' || direction === 'ArrowLeft'
       ? -1
@@ -414,7 +432,11 @@ function newEntry() {
 function showWriter() {
   view = 'write';
 
-  base('New entry', '↑ Menu · ↓ Save · Pinch to select');
+  base(
+    'New entry',
+    '→ Save & clear · ↑ Menu · Pinch to write'
+  );
+
   screen.className = 'writer';
 
   const field = el('textarea');
@@ -424,6 +446,7 @@ function showWriter() {
     'aria-label',
     'Journal entry. Pinch to handwrite or dictate.'
   );
+
   field.value = draft.text;
 
   const update = () => {
@@ -436,15 +459,17 @@ function showWriter() {
   field.addEventListener('input', update);
   field.addEventListener('change', update);
 
-  const save = button('Save entry', saveEntry);
-  save.className = 'save-entry';
-
-  screen.append(field, save);
+  screen.append(field);
   field.focus();
 }
 
 async function saveEntry() {
   if (busy) return false;
+
+  const field = screen.querySelector('textarea');
+  if (!field || !draft) return false;
+
+  draft.text = field.value;
 
   if (!draft.text.trim()) {
     say('Write an entry first.');
@@ -452,13 +477,7 @@ async function saveEntry() {
   }
 
   busy = true;
-
-  const field = screen.querySelector('textarea');
-  if (field) field.disabled = true;
-
-  screen.querySelectorAll('button').forEach(button => {
-    button.disabled = true;
-  });
+  field.readOnly = true;
 
   const previous = entries.slice();
 
@@ -467,31 +486,39 @@ async function saveEntry() {
     updated: new Date().toISOString()
   };
 
-  const index = entries.findIndex(entry => entry.id === saved.id);
+  const index = entries.findIndex(
+    entry => entry.id === saved.id
+  );
 
-  if (index < 0) entries.unshift(saved);
-  else entries[index] = saved;
+  if (index < 0) {
+    entries.unshift(saved);
+  } else {
+    entries[index] = saved;
+  }
 
   try {
     await persist();
 
-    newEntry();
-    say('Entry saved');
+    draft = {
+      id: crypto.randomUUID(),
+      created: new Date().toISOString(),
+      day: dateKey(new Date()),
+      text: ''
+    };
 
+    // Clear the existing field without rebuilding or refocusing it.
+    field.value = '';
+    field.scrollTop = 0;
+
+    say('Entry saved');
     return true;
   } catch {
     entries = previous;
 
-    say('Not saved. Your entry is still here. Try Save again.');
-
-    if (field) field.disabled = false;
-
-    screen.querySelectorAll('button').forEach(button => {
-      button.disabled = false;
-    });
-
+    say('Not saved. Your entry is still here. Swipe right to retry.');
     return false;
   } finally {
+    field.readOnly = false;
     busy = false;
   }
 }
@@ -557,7 +584,11 @@ function showHistory() {
     row.dataset.entryId = entry.id;
 
     row.append(
-      el('span', displayDate(entry.created), 'entry-date'),
+      el(
+        'span',
+        displayDate(entry.created),
+        'entry-date'
+      ),
       el(
         'span',
         entry.text.replace(/\s+/g, ' '),
@@ -674,13 +705,16 @@ function showDate() {
 
       cell.setAttribute('role', 'gridcell');
 
-      const dayButton = button(String(date.getDate()), () => {
-        selectedDate = new Date(date);
-        filter = stamp;
-        historyFocus = null;
+      const dayButton = button(
+        String(date.getDate()),
+        () => {
+          selectedDate = new Date(date);
+          filter = stamp;
+          historyFocus = null;
 
-        showHistory();
-      });
+          showHistory();
+        }
+      );
 
       dayButton.className = 'calendar-day';
       dayButton.tabIndex = -1;
@@ -733,7 +767,9 @@ document.addEventListener('keydown', event => {
     swipe(event.key);
   } else if (
     event.key === 'Enter' &&
-    !['TEXTAREA', 'INPUT'].includes(document.activeElement.tagName)
+    !['TEXTAREA', 'INPUT'].includes(
+      document.activeElement.tagName
+    )
   ) {
     event.preventDefault();
     document.activeElement?.click?.();
@@ -813,7 +849,10 @@ window.addEventListener('storage', event => {
 
 $('date').textContent = new Date().toLocaleDateString(
   undefined,
-  { month: 'short', day: 'numeric' }
+  {
+    month: 'short',
+    day: 'numeric'
+  }
 );
 
 try {
