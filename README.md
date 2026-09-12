@@ -1,13 +1,42 @@
 # Neural Journal
 
-Small vanilla HTML/CSS/JS app for Meta Ray-Ban Display. Set and confirm eight directional swipes, unlock into a focused entry, then pinch to open Meta’s handwriting/voice composer. Swipe up for the menu. Entries save as composer text is committed. Date lookup uses directional year/month/day controls.
+A journaling web app for Meta Display with neural-band handwriting,
+swipe-password unlock, and date-searchable entries.
 
-Entries are stored only in this browser’s localStorage, encrypted with AES-GCM and a PBKDF2-derived key (600,000 SHA-256 iterations). Eight directions have limited entropy: this is a convenience lock, not strong protection against someone who can copy the encrypted data. There is no recovery or synchronization; clearing site data loses entries. Phone and glasses have separate journals. Keep the deployment origin stable.
+## Controls
 
-Meta requires focus plus a physical pinch to open its composer; focus alone cannot open it, and the app cannot force handwriting instead of dictation. Needs firmware with web-app composer support. Desktop arrow keys and touch swipes support testing. Device input, encryption support, and composer behavior require testing on real glasses.
+- Unlock using your eight-swipe password.
+- Pinch the entry field to open Meta’s handwriting/voice composer.
+- Swipe down to select **Save entry**, then pinch to save and clear.
+- Swipe up from the entry screen to open the menu.
+- Middle-finger back tap returns to the previous screen.
+- Select a history row to read it; swipe up/down to scroll.
+- Calendar: left/right moves one day; up/down moves one week.
+  Pinch a date to view entries. Dots mark dates with saved entries.
 
-Source: https://github.com/facebook/meta-wearables-webapp/tree/main/plugins/meta-wearables-webapp/skills/add-text-input
+## Setup
 
-## Upload
+Upload `index.html`, `styles.css`, and `app.js` to the repository root.
+Enable GitHub Pages using `main` → `/ (root)`.
 
-Extract this ZIP and upload index.html, styles.css, app.js, and this README.md to the root of your GitHub repository. Publish that folder with GitHub Pages and use the resulting HTTPS page URL in Meta’s web-app setup. No build or dependencies required. Upload the extracted files, not the ZIP itself. Never put journal data in the repository.
+Add this URL to your Meta Display web apps:
+
+https://noctishowler.github.io/neural-journal/
+
+No build step or dependencies required.
+
+## Storage
+
+Entries are encrypted and stored locally in the device’s browser.
+Existing entries and passwords remain compatible with this update.
+
+Save before closing or reloading; unsaved text is lost.
+There is no device sync or password recovery.
+Clearing site data deletes the journal.
+
+The swipe password is a convenience lock with limited strength.
+
+## Compatibility
+
+Meta supplies the handwriting/voice composer and back gesture.
+This update still needs testing on the glasses.
