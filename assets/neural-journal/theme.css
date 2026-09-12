@@ -1,0 +1,10 @@
+/* Optional visual helpers. Scope these classes explicitly; no gesture handlers. */
+.nj-theme { --nj-ink:#eeebf5; --nj-muted:#b5a9c6; --nj-accent:#b88aef; --nj-panel:#101016; color:var(--nj-ink); background:#030305; }
+.nj-art { position:relative; isolation:isolate; background:#030305 url("textures/charcoal.webp") center/cover; }
+.nj-art--estuary { background-image:url("backgrounds/estuary-night.webp"); }
+.nj-art--moon { background-image:url("backgrounds/moon-corner.webp"); }
+.nj-art::after { content:""; position:absolute; inset:0; background:url("overlays/worn-frame.png") center/100% 100% no-repeat; opacity:.45; pointer-events:none; z-index:2; }
+.nj-panel { background:linear-gradient(135deg,#13131be8,#09090ee8); border:1px solid #37323f; border-radius:10px; }
+.nj-panel:focus-visible, .nj-panel[aria-selected="true"] { border-color:var(--nj-accent); box-shadow:0 0 12px #b88aef55,inset 0 0 10px #b88aef22; outline:2px solid var(--nj-accent); outline-offset:2px; }
+.nj-icon { width:24px; height:24px; flex:none; }
+.nj-decoration { pointer-events:none; user-select:none; opacity:.3; }
