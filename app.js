@@ -115,8 +115,6 @@ function button(label, action, small) {
   const element = el('button', label);
 
   element.type = 'button';
-
-  // All activation passes through the shared event handlers.
   actions.set(element, action);
 
   if (small) {
@@ -463,7 +461,7 @@ function swipe(direction) {
     return;
   }
 
-  // Every direction belongs to the password while locked.
+  // All four directions belong to the password while locked.
   if (view === 'lock') {
     sequence.push(direction);
 
@@ -498,7 +496,7 @@ function swipe(direction) {
     return;
   }
 
-  // Calendar uses drag for date selection.
+  // Calendar dates are selected by dragging.
   if (view === 'date') {
     return;
   }
@@ -726,6 +724,7 @@ async function saveEntry() {
 
     draft = createDraft();
 
+    // Clear in place without rebuilding or refocusing.
     field.value = '';
     field.scrollTop = 0;
 
@@ -1034,8 +1033,6 @@ function showDate() {
 
       cell.setAttribute('role', 'gridcell');
 
-      // Calendar selection is handled by the shared pointer
-      // and click handlers, not a separate button callback.
       const dayButton = button(
         String(date.getDate()),
         event => {
@@ -1094,7 +1091,7 @@ function showDate() {
 }
 
 // ============================================================
-// Input: one action per gesture, tied to the original screen
+// Keyboard / Neural Band input
 // ============================================================
 
 document.addEventListener('keydown', event => {
@@ -1105,13 +1102,13 @@ document.addEventListener('keydown', event => {
   if (arrows[event.key]) {
     event.preventDefault();
 
-    // A pointer drag is already handling this calendar gesture.
     if (
       pointer &&
       pointer.version === screenVersion
     ) {
       pointer.keyHandled = true;
 
+      // A calendar drag already owns this gesture.
       if (calendarPointerActive) {
         return;
       }
@@ -1141,12 +1138,13 @@ document.addEventListener('keydown', event => {
 
   selectHeld = true;
 
-  // Never open the default calendar date from a key generated
-  // by the same pinch. The pointer release opens the date.
+  // Calendar opens its selected date on pointer release.
   if (view === 'date') {
     return;
   }
 
+  // pointer.button contains the focused button captured at
+  // gesture start, rather than an unrelated pointer target.
   const target = pointer?.version === screenVersion
     ? pointer.button
     : document.activeElement;
@@ -1175,6 +1173,10 @@ document.addEventListener('keyup', event => {
   }
 }, true);
 
+// ============================================================
+// Pointer / drag input
+// ============================================================
+
 document.addEventListener('pointerdown', event => {
   if (busy || pointer) {
     return;
@@ -1191,7 +1193,16 @@ document.addEventListener('pointerdown', event => {
     time: performance.now(),
     version: screenVersion,
     view,
-    button: target,
+
+    // Calendar uses position. Other screens use the
+    // highlighted button, captured before pointer defaults.
+    button: view === 'date'
+      ? target
+      : (
+          document.activeElement?.closest?.('button') ||
+          target
+        ),
+
     keyHandled: selectHeld,
     validDay: false,
     blocked: performance.now() < activationUntil
@@ -1199,8 +1210,7 @@ document.addEventListener('pointerdown', event => {
 
   calendarPointerActive = view === 'date';
 
-  // Prevent pointer defaults from moving focus before the
-  // keyboard part of a pinch is processed.
+  // Preserve the highlighted button during the pinch.
   if (target) {
     event.preventDefault();
   }
@@ -1268,7 +1278,7 @@ document.addEventListener('pointerup', event => {
   calendarPointerActive = false;
   selectHeld = false;
 
-  // Reject releases belonging to a screen that has closed.
+  // Do not let an old gesture act on a newly opened screen.
   if (
     start.version !== screenVersion ||
     start.blocked ||
@@ -1320,7 +1330,6 @@ document.addEventListener('pointerup', event => {
     return;
   }
 
-  // The keyboard part already handled this gesture.
   if (start.keyHandled) {
     suppressNextClick();
     return;
@@ -1356,7 +1365,10 @@ document.addEventListener('pointercancel', () => {
   suppressNextClick();
 });
 
-// Click-only devices and assistive technology use the same gate.
+// ============================================================
+// Click fallback
+// ============================================================
+
 document.addEventListener('click', event => {
   if (suppressClick || busy) {
     event.preventDefault();
@@ -1392,7 +1404,13 @@ document.addEventListener('click', event => {
     return;
   }
 
-  activateButton(target, event);
+  const focusedButton =
+    document.activeElement?.closest?.('button');
+
+  activateButton(
+    focusedButton || target,
+    event
+  );
 }, true);
 
 // ============================================================
