@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1"
   >
+
   <meta name="mrbd-web-app-capable" content="yes">
+  <meta name="theme-color" content="#030305">
+
   <meta
     name="description"
     content="A journal for Meta Display with neural-band handwriting, swipe unlock, and date-searchable entries."
@@ -14,13 +18,18 @@
 
   <title>Neural Journal</title>
 
-  <link rel="stylesheet" href="styles.css">
+  <link
+    rel="stylesheet"
+    href="assets/neural-journal/theme.css"
+  >
+  <link rel="stylesheet" href="styles.css?v=2">
+
   <script src="app.js" defer></script>
 </head>
 
-<body>
+<body class="nj-theme">
   <main id="app" aria-label="Neural Journal">
-    <header>
+    <header class="app-header">
       <span class="brand">NEURAL JOURNAL</span>
       <span id="date"></span>
     </header>
@@ -33,6 +42,7 @@
       id="status"
       role="status"
       aria-live="polite"
+      aria-atomic="true"
     ></p>
   </main>
 </body>
