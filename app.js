@@ -697,8 +697,8 @@ function swipe(direction) {
     return;
   }
 
-  // Calendar uses drag rather
-  // than directional swipes.
+  // Calendar uses drag
+  // instead of swipes.
 
   if (
     view === 'date'
@@ -777,7 +777,9 @@ function goBack() {
     view === 'read'
   ) {
 
-    showHistory();
+    showHistory(
+      historyOrigin
+    );
 
   } else if (
     view === 'history'
@@ -792,6 +794,9 @@ function goBack() {
 
     } else {
 
+      filter = '';
+      historyFocus = null;
+
       showMenu();
     }
 
@@ -800,7 +805,7 @@ function goBack() {
   ) {
 
     filter = '';
-    historyOrigin = 'menu';
+    historyFocus = null;
 
     showMenu();
 
@@ -1082,9 +1087,10 @@ function showMenu() {
 
         filter = '';
         historyFocus = null;
-        historyOrigin = 'menu';
 
-        showHistory();
+        showHistory(
+          'menu'
+        );
       }
     ),
 
@@ -1098,7 +1104,6 @@ function showMenu() {
 
         filter = '';
         historyFocus = null;
-        historyOrigin = 'calendar';
 
         showDate();
       }
@@ -1118,9 +1123,14 @@ function showMenu() {
 // Previous entries
 // ----------------------------------
 
-function showHistory() {
+function showHistory(
+  origin = 'menu'
+) {
 
   view = 'history';
+
+  historyOrigin =
+    origin;
 
   base(
     filter
@@ -1420,10 +1430,9 @@ function openSelectedDate() {
   historyFocus =
     null;
 
-  historyOrigin =
-    'calendar';
-
-  showHistory();
+  showHistory(
+    'calendar'
+  );
 }
 
 function showDate() {
@@ -1936,9 +1945,8 @@ document.addEventListener(
     calendarDragging = false;
 
     // Calendar:
-    // whatever date is highlighted
-    // when the drag is released
-    // is immediately opened.
+    // highlighted date opens
+    // immediately on release.
 
     if (
       wasCalendarDrag
