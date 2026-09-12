@@ -1,57 +1,78 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
 
   <meta
     name="viewport"
-    content="width=device-width, initial-scale=1"
+    content="width=600, height=600, initial-scale=1.0, user-scalable=no"
   >
-
-  <meta name="mrbd-web-app-capable" content="yes">
-  <meta name="theme-color" content="#030305">
-  <meta name="application-name" content="Neural Journal">
 
   <meta
     name="description"
-    content="A journal for Meta Display with neural-band handwriting, swipe unlock, and date-searchable entries."
+    content="A journal for Meta Display with neural-band handwriting, swipe unlock, and calendar-based entry browsing."
+  >
+
+  <meta
+    name="mrbd-web-app-capable"
+    content="yes"
+  >
+
+  <meta
+    name="theme-color"
+    content="#030305"
+  >
+
+  <meta
+    name="application-name"
+    content="Neural Journal"
   >
 
   <title>Neural Journal</title>
 
+  <!-- Meta Display / browser launcher icon -->
   <link
     rel="icon"
     type="image/png"
-    sizes="96x96"
-    href="assets/neural-journal/icons/launch-96.PNG"
+    href="favicon.PNG"
   >
 
+  <!-- Web app manifest -->
   <link
-    rel="icon"
-    type="image/png"
-    sizes="192x192"
-    href="assets/neural-journal/icons/launch-192.PNG"
+    rel="manifest"
+    href="manifest.webmanifest"
   >
 
-  <link
-    rel="apple-touch-icon"
-    href="assets/neural-journal/icons/launch-192.PNG"
-  >
-
+  <!-- Neural Journal theme -->
   <link
     rel="stylesheet"
     href="assets/neural-journal/theme.css"
   >
 
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link
+    rel="stylesheet"
+    href="styles.css?v=4"
+  >
 
-  <script src="app.js" defer></script>
+  <script
+    src="app.js"
+    defer
+  ></script>
 </head>
 
 <body class="nj-theme">
-  <main id="app" aria-label="Neural Journal">
+
+  <main
+    id="app"
+    aria-label="Neural Journal"
+  >
+
     <header class="app-header">
-      <span class="brand">NEURAL JOURNAL</span>
+      <span class="brand">
+        NEURAL JOURNAL
+      </span>
+
       <span id="date"></span>
     </header>
 
@@ -65,6 +86,9 @@
       aria-live="polite"
       aria-atomic="true"
     ></p>
+
   </main>
+
 </body>
+
 </html>
