@@ -1,5 +1,7 @@
 'use strict';
 
+// Elements and state
+
 const $ = id => document.getElementById(id);
 const screen = $('screen');
 const hint = $('hint');
@@ -47,11 +49,9 @@ const displayDate = date =>
     year: 'numeric'
   });
 
-const say = message => {
+function say(message) {
   status.textContent = message;
-};
-
-// Elements
+}
 
 function el(tag, text, className) {
   const element = document.createElement(tag);
@@ -64,6 +64,7 @@ function el(tag, text, className) {
 
 function button(label, action, small) {
   const element = el('button', label);
+  element.type = 'button';
 
   if (small) element.append(el('small', small));
 
@@ -115,10 +116,7 @@ async function encrypt(data, encryptionKey, salt) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
   const cipher = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv
-    },
+    { name: 'AES-GCM', iv },
     encryptionKey,
     enc.encode(JSON.stringify(data))
   );
@@ -147,12 +145,6 @@ function persist() {
 
     localStorage.setItem(STORE, JSON.stringify(next));
     vault = next;
-
-    say('Saved on this device');
-  });
-
-  saveQueue.catch(() => {
-    say('Not saved. Keep this page open and try again.');
   });
 
   return saveQueue;
@@ -197,6 +189,7 @@ function showLock() {
   screen.append(
     row,
     button('Start over', () => {
+      if (busy) return;
       first = null;
       showLock();
     })
@@ -264,8 +257,8 @@ async function unlock() {
     first = null;
     failures = 0;
 
-    say('Unlocked');
     newEntry();
+    say('Unlocked');
   } catch {
     say('Cannot open the journal. Storage or encryption is unavailable.');
     showLock();
@@ -279,7 +272,7 @@ async function lock() {
 
   if (draft?.text.trim()) {
     showWriter();
-    say('Save your entry before locking.');
+    say('Swipe right to save your entry before locking.');
     return;
   }
 
@@ -303,8 +296,9 @@ async function lock() {
 // Directional navigation
 
 function swipe(direction) {
-  if (busy) return;
+  if (busy || !arrows[direction]) return;
 
+  // All four directions remain available for the password.
   if (view === 'lock') {
     sequence.push(direction);
 
@@ -327,6 +321,7 @@ function swipe(direction) {
 
         setTimeout(() => {
           busy = false;
+          failures = 0;
           showLock();
           say('Try your sequence again');
         }, 15000);
@@ -338,13 +333,17 @@ function swipe(direction) {
     return;
   }
 
+  // Left is back everywhere after unlocking.
+  if (direction === 'ArrowLeft') {
+    goBack();
+    return;
+  }
+
   if (view === 'write') {
     if (direction === 'ArrowRight') {
       saveEntry();
     } else if (direction === 'ArrowUp') {
       showMenu();
-    } else if (direction === 'ArrowLeft') {
-      screen.querySelector('textarea')?.focus();
     } else if (direction === 'ArrowDown') {
       screen.querySelector('textarea')?.scrollBy({
         top: 160
@@ -354,25 +353,27 @@ function swipe(direction) {
     return;
   }
 
-  if (
-    view === 'read' &&
-    (direction === 'ArrowDown' || direction === 'ArrowUp')
-  ) {
-    screen.querySelector('.entry-text').scrollBy({
-      top: direction === 'ArrowDown' ? 160 : -160
-    });
+  if (view === 'read') {
+    if (
+      direction === 'ArrowDown' ||
+      direction === 'ArrowUp'
+    ) {
+      screen.querySelector('.entry-text')?.scrollBy({
+        top: direction === 'ArrowDown' ? 160 : -160
+      });
+    }
 
     return;
   }
 
   if (view === 'date') {
-    changeDate({
-      ArrowLeft: -1,
+    const offset = {
       ArrowRight: 1,
       ArrowUp: -7,
       ArrowDown: 7
-    }[direction]);
+    }[direction];
 
+    if (offset !== undefined) changeDate(offset);
     return;
   }
 
@@ -384,16 +385,16 @@ function navigate(direction) {
     ...screen.querySelectorAll('button,input,textarea')
   ];
 
+  if (!items.length) return;
+
   const current = items.indexOf(document.activeElement);
+  const delta = direction === 'ArrowUp' ? -1 : 1;
 
-  const delta =
-    direction === 'ArrowUp' || direction === 'ArrowLeft'
-      ? -1
-      : 1;
+  const next = current < 0
+    ? 0
+    : (current + delta + items.length) % items.length;
 
-  items[
-    (current + delta + items.length) % items.length
-  ]?.focus();
+  items[next].focus();
 }
 
 function goBack() {
@@ -419,10 +420,12 @@ function goBack() {
 // Journal editor
 
 function newEntry() {
+  const now = new Date();
+
   draft = {
     id: crypto.randomUUID(),
-    created: new Date().toISOString(),
-    day: dateKey(new Date()),
+    created: now.toISOString(),
+    day: dateKey(now),
     text: ''
   };
 
@@ -499,14 +502,16 @@ async function saveEntry() {
   try {
     await persist();
 
+    const now = new Date();
+
     draft = {
       id: crypto.randomUUID(),
-      created: new Date().toISOString(),
-      day: dateKey(new Date()),
+      created: now.toISOString(),
+      day: dateKey(now),
       text: ''
     };
 
-    // Clear the existing field without rebuilding or refocusing it.
+    // Keep the existing field: no rebuild or focus change.
     field.value = '';
     field.scrollTop = 0;
 
@@ -530,7 +535,7 @@ function showMenu() {
 
   base(
     'Journal',
-    'Swipe to choose · Pinch to open · Middle-finger tap: back'
+    '↑ ↓ Choose · Pinch to open · ← Back'
   );
 
   screen.className = 'menu';
@@ -560,7 +565,7 @@ function showHistory() {
     filter
       ? displayDate(filter + 'T12:00:00')
       : 'Previous entries',
-    '↑ ↓ Choose · Pinch to read · Middle-finger tap: back'
+    '↑ ↓ Choose · Pinch to read · ← Back'
   );
 
   screen.className = 'history';
@@ -624,7 +629,7 @@ function showEntry(entry) {
 
   base(
     displayDate(entry.created),
-    '↑ ↓ Scroll · Middle-finger tap: back'
+    '↑ ↓ Scroll · ← Back'
   );
 
   screen.className = 'reader';
@@ -653,7 +658,7 @@ function showDate() {
       month: 'long',
       year: 'numeric'
     }),
-    '← → Day · ↑ ↓ Week · Pinch to open · Middle-finger tap: back'
+    '→ Next day · ↑ ↓ Week · Pinch to open · ← Back'
   );
 
   screen.className = 'calendar';
@@ -765,17 +770,17 @@ document.addEventListener('keydown', event => {
   if (arrows[event.key]) {
     event.preventDefault();
     swipe(event.key);
-  } else if (
+    return;
+  }
+
+  if (
     event.key === 'Enter' &&
     !['TEXTAREA', 'INPUT'].includes(
-      document.activeElement.tagName
+      document.activeElement?.tagName
     )
   ) {
     event.preventDefault();
     document.activeElement?.click?.();
-  } else if (event.key === 'Escape') {
-    event.preventDefault();
-    goBack();
   }
 });
 
