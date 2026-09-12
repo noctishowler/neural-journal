@@ -1,10 +1,21 @@
-/* Base */
+/* ==========================================================
+   Base
+   ========================================================== */
 
 :root {
   color-scheme: dark;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   font-size: 18px;
-  color: #fff;
+
+  --ink: #eeebf5;
+  --muted: #b5a9c6;
+  --accent: #b88aef;
+  --accent-bright: #d5b4ff;
+  --edge: #38323f;
+  --panel: #101016;
+
+  color: var(--ink);
   background: #000;
 }
 
@@ -14,122 +25,227 @@
 
 html,
 body {
+  width: 100%;
   height: 100%;
   overflow: hidden;
 }
 
-body {
+body.nj-theme {
   margin: 0;
+  color: var(--ink);
   background: #000;
   touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
-  width: 100%;
-  max-width: 600px;
-  height: min(600px, 100dvh);
-  min-height: 0;
-  margin: auto;
-  padding: 24px;
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+
+  width: 100%;
+  max-width: 600px;
+  height: min(600px, 100vh);
+  height: min(600px, 100dvh);
+  min-height: 0;
+
+  margin: 0 auto;
+  padding: 26px;
+  gap: 12px;
+  overflow: hidden;
+
+  background:
+    url("assets/neural-journal/textures/charcoal.webp")
+    center / cover no-repeat,
+    #030305;
 }
 
-header {
+/* Decorative layers never receive input. */
+
+#app::before,
+#app::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+}
+
+#app::before {
+  inset: 0;
+  z-index: 0;
+  opacity: .2;
+
+  background:
+    url("assets/neural-journal/overlays/compass.svg")
+    right -38px bottom -38px / 190px 190px no-repeat,
+    url("assets/neural-journal/overlays/chart-grid.svg")
+    center / cover no-repeat;
+}
+
+#app::after {
+  inset: 0;
+  z-index: 3;
+  opacity: .48;
+
+  background:
+    url("assets/neural-journal/overlays/worn-frame.png")
+    center / 100% 100% no-repeat;
+}
+
+#app > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ==========================================================
+   Header / footer
+   ========================================================== */
+
+.app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
   gap: 12px;
-  min-height: 40px;
-  font-size: .78rem;
-  color: #d4c3ff;
+  min-height: 30px;
+
+  font-size: .72rem;
 }
 
 .brand {
-  font-weight: 700;
-  letter-spacing: .12em;
+  color: var(--accent-bright);
+  font-weight: 500;
+  letter-spacing: .19em;
 }
 
 #date {
-  color: #bfc1c8;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-#screen {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  overflow: auto;
-  scrollbar-width: thin;
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.7rem;
-  font-weight: 600;
-  letter-spacing: -.03em;
-}
-
-h2 {
-  margin: 0;
-  font-size: 1.15rem;
-}
-
-p {
-  margin: 0;
-  line-height: 1.5;
-  color: #e4e6eb;
-}
-
-.sub {
-  color: #bfc1c8;
-  font-size: .88rem;
-}
-
-footer {
-  min-height: 24px;
-  color: #d4c3ff;
-  font-size: .85rem;
+#hint {
+  flex-shrink: 0;
+  min-height: 22px;
+  color: var(--accent-bright);
+  font-size: .76rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 #status {
+  flex-shrink: 0;
   min-height: 22px;
-  color: #e0d1ff;
-  font-size: .8rem;
+  margin: 0;
+
+  color: var(--accent-bright);
+  font-size: .76rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
-/* Controls */
+/* Preserve the status area without shifting the screen. */
+
+#status:empty {
+  background:
+    url("assets/neural-journal/overlays/waveform.svg")
+    center / 180px 22px no-repeat;
+}
+
+/* ==========================================================
+   Screen / typography
+   ========================================================== */
+
+#screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  gap: 14px;
+
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  scrollbar-width: thin;
+  scrollbar-color: #695279 transparent;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  flex-shrink: 0;
+  color: var(--ink);
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -.025em;
+}
+
+h2 {
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+p {
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.sub {
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+/* ==========================================================
+   Controls / selection
+   ========================================================== */
 
 button,
 input,
 textarea {
   font: inherit;
-  color: inherit;
-  background: #17151e;
-  border: 2px solid transparent;
-  border-radius: 16px;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+
+  background:
+    linear-gradient(135deg, #14141dec, #09090fec);
 }
 
 button {
-  min-height: 88px;
-  padding: 16px;
+  position: relative;
+  flex-shrink: 0;
+  min-height: 62px;
+  padding: 14px 18px;
+
   text-align: left;
   cursor: pointer;
-  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 button:focus,
-input:focus,
-textarea:focus {
+button.selected {
   outline: none;
-  border-color: #c7a4ff;
-  background: #292035;
+  border-color: var(--accent);
+  background:
+    linear-gradient(135deg, #281b38ee, #15101eee);
+
+  box-shadow:
+    inset 0 0 12px #b88aef20,
+    0 0 10px #b88aef55;
 }
 
 button:active {
-  background: #403054;
+  background: #30203f;
+  border-color: var(--accent-bright);
 }
 
 button:disabled {
@@ -139,66 +255,112 @@ button:disabled {
 
 button small {
   display: block;
-  margin-top: 6px;
-  color: #c6c2cd;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: .8rem;
 }
 
 input {
   width: 100%;
-  min-height: 88px;
-  padding: 18px;
+  min-height: 56px;
+  padding: 14px;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: #a184b8;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 textarea {
   width: 100%;
-  flex: 1;
-  min-height: 160px;
-  padding: 20px;
+  min-width: 0;
+  padding: 18px;
   resize: none;
-  line-height: 1.55;
-  font-size: 1.3rem;
+
+  color: var(--ink);
+  caret-color: var(--accent-bright);
+  font-size: 1.15rem;
+  line-height: 1.6;
+
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #695279 transparent;
 }
 
-textarea::placeholder,
-input::placeholder {
-  color: #bfc1c8;
+::selection {
+  color: #fff;
+  background: #654581;
 }
 
-.selected {
-  border-color: #c7a4ff;
-}
+/* ==========================================================
+   Lock screen
+   ========================================================== */
 
-/* Lock screen */
-
-.lock {
+#screen.lock {
   justify-content: center;
+  gap: 13px;
+  padding: 14px 10px;
   text-align: center;
+
+  background:
+    url("assets/neural-journal/backgrounds/moon-corner.webp")
+    center / cover no-repeat;
 }
 
 .lock h1 {
-  font-size: 2rem;
+  font-size: 1.65rem;
+  text-shadow: 0 2px 12px #000;
+}
+
+.lock .sub {
+  text-shadow: 0 2px 8px #000;
 }
 
 .dots {
-  min-height: 50px;
-  letter-spacing: .28em;
-  color: #d4b8ff;
-  font-size: 1.7rem;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding-left: .2em;
+
+  color: var(--accent-bright);
+  font-size: 1.65rem;
+  line-height: 1.4;
+  letter-spacing: .2em;
+  white-space: nowrap;
 }
 
 .directions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  flex-shrink: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .directions button {
+  min-height: 64px;
   padding: 8px;
+  color: var(--accent-bright);
+  font-size: 1.65rem;
   text-align: center;
-  font-size: 1.5rem;
 }
 
-/* Entry screen */
+.lock > button {
+  align-self: center;
+  min-height: 42px;
+  padding: 8px 22px;
+  font-size: .8rem;
+}
+
+/* ==========================================================
+   Writer
+   ========================================================== */
 
 #screen.writer,
 #screen.reader,
@@ -208,21 +370,89 @@ input::placeholder {
 }
 
 .writer textarea {
-  min-height: 0;
   flex: 1 1 0;
+  min-height: 0;
+
+  background:
+    url("assets/neural-journal/overlays/feather.svg")
+    right 14px bottom 14px / 64px 92px no-repeat,
+    linear-gradient(135deg, #11121af5, #090a10f5);
+
+  box-shadow: inset 0 0 28px #0005;
 }
 
-.save-entry {
-  align-self: flex-end;
-  min-height: 48px;
-  padding: 10px 24px;
-  border-radius: 12px;
+.writer textarea:focus {
+  border-color: #9a80ae;
 }
 
-/* Menu */
+/* ==========================================================
+   Menu
+   ========================================================== */
 
-.menu button {
-  min-height: 64px;
+#screen.menu {
+  padding: 3px 5px 8px;
+
+  background:
+    url("assets/neural-journal/overlays/compass.svg")
+    right -65px bottom -75px / 220px 220px no-repeat;
+}
+
+.menu > h1 {
+  margin-bottom: 6px;
+}
+
+.menu > button {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 68px;
+  padding-right: 46px;
+}
+
+.menu > button::before,
+.menu > button::after {
+  content: "";
+  display: block;
+  pointer-events: none;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.menu > button::before {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+
+/* Matches the current JavaScript's three menu buttons. */
+
+.menu > button:nth-of-type(1)::before {
+  background-image:
+    url("assets/neural-journal/icons/document.svg");
+}
+
+.menu > button:nth-of-type(2)::before {
+  background-image:
+    url("assets/neural-journal/icons/calendar.svg");
+}
+
+.menu > button:nth-of-type(3)::before {
+  background-image:
+    url("assets/neural-journal/icons/lock.svg");
+}
+
+.menu > button::after {
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  width: 19px;
+  height: 19px;
+  transform: translateY(-50%);
+
+  background-image:
+    url("assets/neural-journal/icons/chevron-right.svg");
 }
 
 .row {
@@ -232,126 +462,195 @@ input::placeholder {
 
 .row > * {
   flex: 1;
+  min-width: 0;
 }
 
-/* History */
+/* ==========================================================
+   Previous entries
+   ========================================================== */
 
 .list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 9px;
 }
 
 .history .list {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
+  padding: 5px 5px 12px;
   overflow-y: auto;
-  gap: 8px;
-  padding-bottom: 12px;
+  overscroll-behavior: contain;
+
+  scrollbar-width: thin;
+  scrollbar-color: #695279 transparent;
 }
 
 .history-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  grid-template-rows: auto auto;
+  align-content: center;
   align-items: center;
-  gap: 16px;
+  column-gap: 12px;
+  row-gap: 4px;
+
   width: 100%;
-  min-height: 58px;
-  padding: 12px 14px;
-  border-radius: 10px;
+  min-height: 68px;
+  padding: 10px 14px;
+  border-radius: 9px;
 }
 
 .entry-date {
-  flex: 0 0 auto;
-  color: #d4c3ff;
-  font-size: .8rem;
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--ink);
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .entry-preview {
-  flex: 1;
+  grid-column: 1;
+  grid-row: 2;
   min-width: 0;
+
   overflow: hidden;
+  color: var(--muted);
+  font-size: .8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.history-row::after {
+  content: "";
+  grid-column: 2;
+  grid-row: 1 / 3;
+  width: 18px;
+  height: 22px;
+  pointer-events: none;
+
+  background:
+    url("assets/neural-journal/icons/chevron-right.svg")
+    center / contain no-repeat;
+}
+
 .empty {
   margin: auto;
+  padding: 20px;
+  color: var(--muted);
   text-align: center;
 }
 
-/* Entry reader */
+/* ==========================================================
+   Entry reader
+   ========================================================== */
 
 .entry-text {
-  flex: 1;
-  overflow: auto;
-  padding: 16px;
-  border-radius: 16px;
-  background: #111016;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 1.3rem;
-  line-height: 1.6;
-}
-
-.reader .entry-text {
+  flex: 1 1 0;
   min-height: 0;
   margin: 0;
+  padding: 18px;
+
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+
+  color: var(--ink);
+  font-size: 1.12rem;
+  line-height: 1.65;
+
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+
+  background:
+    linear-gradient(#05050955, #050509aa),
+    url("assets/neural-journal/backgrounds/estuary-night.webp")
+    center bottom / cover no-repeat,
+    #08080d;
+
+  scrollbar-width: thin;
+  scrollbar-color: #695279 transparent;
 }
 
 .entry-text:focus {
   outline: none;
+  border-color: #857091;
 }
 
-/* Calendar */
+/* ==========================================================
+   Calendar
+   ========================================================== */
 
 #screen.calendar {
   gap: 10px;
 }
 
 .calendar h1 {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
 }
 
 .calendar-grid {
   display: grid;
   grid-template-rows: 24px repeat(6, minmax(0, 1fr));
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   gap: 5px;
+  padding: 4px;
 }
 
 .calendar-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  min-height: 0;
   gap: 5px;
 }
 
+.calendar-week > div {
+  min-width: 0;
+  min-height: 0;
+}
+
 .weekday {
+  align-self: center;
+  color: var(--muted);
+  font-size: .78rem;
   text-align: center;
-  color: #c6c2cd;
-  font-size: .8rem;
 }
 
 .calendar-day {
   position: relative;
+  display: block;
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 4px;
+  padding: 3px 3px 9px;
+
+  border-color: #22212c;
+  border-radius: 8px;
+  background: #11121ae8;
+
+  font-size: .95rem;
+  font-variant-numeric: tabular-nums;
   text-align: center;
-  border-radius: 9px;
-  font-size: 1rem;
 }
 
 .calendar-day.outside-month {
-  color: #b0b3b8;
-  background: #0a0a0f;
+  color: #8b8395;
+  background: #08090dbb;
+  border-color: #17161e;
 }
 
-.calendar-day.selected {
+.calendar-day.selected,
+.calendar-day:focus {
   color: #fff;
-  background: #403054;
-  border-color: #c7a4ff;
+  border-color: var(--accent);
+  background:
+    linear-gradient(135deg, #30213f, #17111f);
+
+  box-shadow:
+    inset 0 0 9px #b88aef22,
+    0 0 8px #b88aef55;
 }
 
 .calendar-day[aria-current="date"] {
@@ -361,47 +660,137 @@ input::placeholder {
 
 .entry-dot {
   position: absolute;
-  bottom: -3px;
+  bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  color: #d4b8ff;
+
+  color: var(--accent);
   font-size: .9rem;
+  line-height: 1;
+  pointer-events: none;
 }
 
-/* Smaller screens */
+/* ==========================================================
+   Smaller screens
+   ========================================================== */
 
 @media (max-width: 420px) {
   #app {
-    padding: 16px;
-    gap: 12px;
-  }
-
-  header {
-    font-size: .67rem;
-  }
-
-  h1 {
-    font-size: 1.5rem;
-  }
-
-  textarea {
-    font-size: 1.1rem;
-  }
-
-  .history-row {
+    padding: 19px;
     gap: 10px;
   }
 
-  .entry-date,
-  footer {
-    font-size: .75rem;
+  .app-header {
+    gap: 8px;
+    font-size: .64rem;
+  }
+
+  .brand {
+    letter-spacing: .12em;
+  }
+
+  h1 {
+    font-size: 1.35rem;
+  }
+
+  #screen {
+    gap: 12px;
+  }
+
+  .lock h1 {
+    font-size: 1.4rem;
+  }
+
+  .lock .sub {
+    font-size: .78rem;
+  }
+
+  .dots {
+    font-size: 1.5rem;
+    letter-spacing: .14em;
+  }
+
+  .directions {
+    gap: 7px;
+  }
+
+  .directions button {
+    min-height: 56px;
+  }
+
+  .menu > button {
+    min-height: 64px;
+    gap: 12px;
+    font-size: .95rem;
+  }
+
+  textarea,
+  .entry-text {
+    padding: 14px;
+    font-size: 1.05rem;
+  }
+
+  #hint,
+  #status {
+    font-size: .69rem;
+  }
+
+  .calendar-grid,
+  .calendar-week {
+    gap: 4px;
+  }
+
+  .calendar-day {
+    font-size: .85rem;
   }
 }
 
-/* Reduced-motion support */
+@media (max-height: 480px) {
+  #app {
+    padding: 16px 20px;
+    gap: 7px;
+  }
+
+  .app-header {
+    min-height: 24px;
+  }
+
+  #screen {
+    gap: 9px;
+  }
+
+  #screen.lock {
+    justify-content: flex-start;
+    padding-top: 6px;
+  }
+
+  .lock h1 {
+    font-size: 1.3rem;
+  }
+
+  .dots {
+    min-height: 32px;
+    font-size: 1.3rem;
+  }
+
+  .directions button {
+    min-height: 46px;
+  }
+
+  .menu > button {
+    min-height: 54px;
+  }
+}
+
+/* ==========================================================
+   Motion
+   ========================================================== */
 
 @media (prefers-reduced-motion: no-preference) {
   button {
-    transition: background .15s, border-color .15s;
+    transition:
+      background-color .12s ease,
+      border-color .12s ease,
+      box-shadow .12s ease;
   }
 }
