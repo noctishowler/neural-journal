@@ -794,3 +794,56 @@ textarea {
       box-shadow .12s ease;
   }
 }
+/* Blend lock-screen artwork into the outer frame. */
+
+#screen.lock {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+
+#screen.lock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+
+  background:
+    url("assets/neural-journal/backgrounds/moon-corner.webp")
+    center / cover no-repeat;
+
+  -webkit-mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 9%,
+      #000 91%,
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 9%,
+      #000 88%,
+      transparent
+    );
+  -webkit-mask-composite: source-in;
+
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 9%,
+      #000 91%,
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 9%,
+      #000 88%,
+      transparent
+    );
+  mask-composite: intersect;
+}
