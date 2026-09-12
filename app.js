@@ -84,6 +84,13 @@ function focusFirst() {
   screen.querySelector('textarea,input,button')?.focus();
 }
 
+function today() {
+  const now = new Date();
+  now.setHours(12, 0, 0, 0);
+
+  return now;
+}
+
 // Encrypted storage
 
 async function derive(seq, salt) {
@@ -190,6 +197,7 @@ function showLock() {
     row,
     button('Start over', () => {
       if (busy) return;
+
       first = null;
       showLock();
     })
@@ -230,8 +238,10 @@ async function unlock() {
         );
       } catch {
         failures++;
+
         say('Sequence not recognized. Try again.');
         showLock();
+
         return;
       }
 
@@ -272,6 +282,7 @@ async function lock() {
 
   if (draft?.text.trim()) {
     showWriter();
+
     say('Swipe right to save your entry before locking.');
     return;
   }
@@ -309,19 +320,23 @@ function swipe(direction) {
     if (sequence.length === LENGTH) {
       if (!vault && !first) {
         first = sequence.slice();
+
         showLock();
         say('Repeat to confirm');
       } else if (!vault && sequence.join() !== first.join()) {
         first = null;
+
         showLock();
         say('Sequences did not match. Choose again.');
       } else if (failures >= 5) {
         busy = true;
+
         say('Please wait 15 seconds before trying again.');
 
         setTimeout(() => {
           busy = false;
           failures = 0;
+
           showLock();
           say('Try your sequence again');
         }, 15000);
@@ -330,12 +345,6 @@ function swipe(direction) {
       }
     }
 
-    return;
-  }
-
-  // Left is back everywhere after unlocking.
-  if (direction === 'ArrowLeft') {
-    goBack();
     return;
   }
 
@@ -368,16 +377,32 @@ function swipe(direction) {
 
   if (view === 'date') {
     const offset = {
+      ArrowLeft: -1,
       ArrowRight: 1,
       ArrowUp: -7,
       ArrowDown: 7
     }[direction];
 
-    if (offset !== undefined) changeDate(offset);
+    if (offset !== undefined) {
+      changeDate(offset);
+    }
+
     return;
   }
 
-  navigate(direction);
+  if (
+    view === 'menu' ||
+    view === 'history'
+  ) {
+    if (
+      direction === 'ArrowUp' ||
+      direction === 'ArrowDown'
+    ) {
+      navigate(direction);
+    }
+
+    return;
+  }
 }
 
 function navigate(direction) {
@@ -403,8 +428,11 @@ function goBack() {
   if (view === 'read') {
     showHistory();
   } else if (view === 'history') {
-    if (filter) showDate();
-    else showMenu();
+    if (filter) {
+      showDate();
+    } else {
+      showMenu();
+    }
   } else if (view === 'date') {
     showMenu();
   } else if (view === 'menu') {
@@ -433,6 +461,17 @@ function newEntry() {
 }
 
 function showWriter() {
+  if (!draft) {
+    const now = new Date();
+
+    draft = {
+      id: crypto.randomUUID(),
+      created: now.toISOString(),
+      day: dateKey(now),
+      text: ''
+    };
+  }
+
   view = 'write';
 
   base(
@@ -445,6 +484,7 @@ function showWriter() {
   const field = el('textarea');
 
   field.placeholder = 'What’s on your mind?';
+
   field.setAttribute(
     'aria-label',
     'Journal entry. Pinch to handwrite or dictate.'
@@ -470,12 +510,14 @@ async function saveEntry() {
   if (busy) return false;
 
   const field = screen.querySelector('textarea');
+
   if (!field || !draft) return false;
 
   draft.text = field.value;
 
   if (!draft.text.trim()) {
     say('Write an entry first.');
+
     return false;
   }
 
@@ -511,16 +553,19 @@ async function saveEntry() {
       text: ''
     };
 
-    // Keep the existing field: no rebuild or focus change.
     field.value = '';
     field.scrollTop = 0;
 
     say('Entry saved');
+
     return true;
   } catch {
     entries = previous;
 
-    say('Not saved. Your entry is still here. Swipe right to retry.');
+    say(
+      'Not saved. Your entry is still here. Swipe right to retry.'
+    );
+
     return false;
   } finally {
     field.readOnly = false;
@@ -535,22 +580,42 @@ function showMenu() {
 
   base(
     'Journal',
-    '↑ ↓ Choose · Pinch to open · ← Back'
+    '↑ ↓ Choose · Pinch to open · Back gesture'
   );
 
   screen.className = 'menu';
 
   screen.append(
-    button('Continue entry', showWriter),
+    button(
+      'Continue entry',
+      showWriter
+    ),
 
-    button('Previous entries', () => {
-      filter = '';
-      historyFocus = null;
-      showHistory();
-    }),
+    button(
+      'Previous entries',
+      () => {
+        filter = '';
+        historyFocus = null;
 
-    button('Find a date', showDate),
-    button('Lock journal', lock)
+        showHistory();
+      }
+    ),
+
+    button(
+      'Find a date',
+      () => {
+        selectedDate = today();
+        filter = '';
+        historyFocus = null;
+
+        showDate();
+      }
+    ),
+
+    button(
+      'Lock journal',
+      lock
+    )
   );
 
   focusFirst();
@@ -565,25 +630,36 @@ function showHistory() {
     filter
       ? displayDate(filter + 'T12:00:00')
       : 'Previous entries',
-    '↑ ↓ Choose · Pinch to read · ← Back'
+    '↑ ↓ Choose · Pinch to read · Back gesture'
   );
 
   screen.className = 'history';
 
   const matches = entries
-    .filter(entry =>
-      entry.text.trim() &&
-      (!filter || entry.day === filter)
+    .filter(
+      entry =>
+        entry.text.trim() &&
+        (!filter || entry.day === filter)
     )
-    .sort((a, b) => b.created.localeCompare(a.created));
+    .sort(
+      (a, b) =>
+        b.created.localeCompare(a.created)
+    );
 
-  const list = el('div', undefined, 'list');
+  const list = el(
+    'div',
+    undefined,
+    'list'
+  );
 
   matches.forEach(entry => {
-    const row = button('', () => {
-      historyFocus = entry.id;
-      showEntry(entry);
-    });
+    const row = button(
+      '',
+      () => {
+        historyFocus = entry.id;
+        showEntry(entry);
+      }
+    );
 
     row.className = 'history-row';
     row.dataset.entryId = entry.id;
@@ -618,10 +694,17 @@ function showHistory() {
 
   screen.append(list);
 
-  const target = [...list.querySelectorAll('button')]
-    .find(button => button.dataset.entryId === historyFocus);
+  const target = [
+    ...list.querySelectorAll('button')
+  ].find(
+    button =>
+      button.dataset.entryId === historyFocus
+  );
 
-  (target || list.querySelector('button'))?.focus();
+  (
+    target ||
+    list.querySelector('button')
+  )?.focus();
 }
 
 function showEntry(entry) {
@@ -629,15 +712,23 @@ function showEntry(entry) {
 
   base(
     displayDate(entry.created),
-    '↑ ↓ Scroll · ← Back'
+    '↑ ↓ Scroll · Back gesture'
   );
 
   screen.className = 'reader';
 
-  const text = el('div', entry.text, 'entry-text');
+  const text = el(
+    'div',
+    entry.text,
+    'entry-text'
+  );
 
   text.tabIndex = 0;
-  text.setAttribute('aria-label', 'Journal entry');
+
+  text.setAttribute(
+    'aria-label',
+    'Journal entry'
+  );
 
   screen.append(text);
   text.focus();
@@ -646,7 +737,10 @@ function showEntry(entry) {
 // Calendar
 
 function changeDate(days) {
-  selectedDate.setDate(selectedDate.getDate() + days);
+  selectedDate.setDate(
+    selectedDate.getDate() + days
+  );
+
   showDate();
 }
 
@@ -654,27 +748,65 @@ function showDate() {
   view = 'date';
 
   base(
-    selectedDate.toLocaleDateString(undefined, {
-      month: 'long',
-      year: 'numeric'
-    }),
-    '→ Next day · ↑ ↓ Week · Pinch to open · ← Back'
+    selectedDate.toLocaleDateString(
+      undefined,
+      {
+        month: 'long',
+        year: 'numeric'
+      }
+    ),
+    '← → Day · ↑ ↓ Week · Pinch to open · Back gesture'
   );
 
   screen.className = 'calendar';
 
-  const grid = el('div', undefined, 'calendar-grid');
+  const grid = el(
+    'div',
+    undefined,
+    'calendar-grid'
+  );
 
-  grid.setAttribute('role', 'grid');
-  grid.setAttribute('aria-label', 'Choose a journal date');
+  grid.setAttribute(
+    'role',
+    'grid'
+  );
 
-  const headings = el('div', undefined, 'calendar-week');
-  headings.setAttribute('role', 'row');
+  grid.setAttribute(
+    'aria-label',
+    'Choose a journal date'
+  );
 
-  ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].forEach(label => {
-    const day = el('span', label, 'weekday');
+  const headings = el(
+    'div',
+    undefined,
+    'calendar-week'
+  );
 
-    day.setAttribute('role', 'columnheader');
+  headings.setAttribute(
+    'role',
+    'row'
+  );
+
+  [
+    'Su',
+    'Mo',
+    'Tu',
+    'We',
+    'Th',
+    'Fr',
+    'Sa'
+  ].forEach(label => {
+    const day = el(
+      'span',
+      label,
+      'weekday'
+    );
+
+    day.setAttribute(
+      'role',
+      'columnheader'
+    );
+
     headings.append(day);
   });
 
@@ -687,28 +819,62 @@ function showDate() {
     12
   );
 
-  start.setDate(start.getDate() - start.getDay());
+  start.setDate(
+    start.getDate() -
+    start.getDay()
+  );
 
   const savedDays = new Set(
     entries
-      .filter(entry => entry.text.trim())
-      .map(entry => entry.day)
+      .filter(
+        entry =>
+          entry.text.trim()
+      )
+      .map(
+        entry =>
+          entry.day
+      )
   );
 
   let selected;
 
-  for (let week = 0; week < 6; week++) {
-    const row = el('div', undefined, 'calendar-week');
-    row.setAttribute('role', 'row');
+  for (
+    let week = 0;
+    week < 6;
+    week++
+  ) {
+    const row = el(
+      'div',
+      undefined,
+      'calendar-week'
+    );
 
-    for (let day = 0; day < 7; day++) {
+    row.setAttribute(
+      'role',
+      'row'
+    );
+
+    for (
+      let day = 0;
+      day < 7;
+      day++
+    ) {
       const date = new Date(start);
-      date.setDate(start.getDate() + week * 7 + day);
+
+      date.setDate(
+        start.getDate() +
+        week * 7 +
+        day
+      );
 
       const stamp = dateKey(date);
+
       const cell = el('div');
 
-      cell.setAttribute('role', 'gridcell');
+      cell.setAttribute(
+        'role',
+        'gridcell'
+      );
 
       const dayButton = button(
         String(date.getDate()),
@@ -721,33 +887,71 @@ function showDate() {
         }
       );
 
-      dayButton.className = 'calendar-day';
+      dayButton.className =
+        'calendar-day';
+
       dayButton.tabIndex = -1;
 
       dayButton.setAttribute(
         'aria-label',
         displayDate(date) +
-          (savedDays.has(stamp) ? ', has entries' : '')
+          (
+            savedDays.has(stamp)
+              ? ', has entries'
+              : ''
+          )
       );
 
-      if (date.getMonth() !== selectedDate.getMonth()) {
-        dayButton.classList.add('outside-month');
+      if (
+        date.getMonth() !==
+        selectedDate.getMonth()
+      ) {
+        dayButton.classList.add(
+          'outside-month'
+        );
       }
 
-      if (savedDays.has(stamp)) {
-        dayButton.classList.add('has-entries');
-        dayButton.append(el('span', '•', 'entry-dot'));
+      if (
+        savedDays.has(stamp)
+      ) {
+        dayButton.classList.add(
+          'has-entries'
+        );
+
+        dayButton.append(
+          el(
+            'span',
+            '•',
+            'entry-dot'
+          )
+        );
       }
 
-      if (stamp === dateKey(new Date())) {
-        dayButton.setAttribute('aria-current', 'date');
+      if (
+        stamp ===
+        dateKey(new Date())
+      ) {
+        dayButton.setAttribute(
+          'aria-current',
+          'date'
+        );
       }
 
-      if (stamp === dateKey(selectedDate)) {
+      if (
+        stamp ===
+        dateKey(selectedDate)
+      ) {
         dayButton.tabIndex = 0;
-        dayButton.classList.add('selected');
 
-        cell.setAttribute('aria-selected', 'true');
+        dayButton.classList.add(
+          'selected'
+        );
+
+        cell.setAttribute(
+          'aria-selected',
+          'true'
+        );
+
         selected = dayButton;
       }
 
@@ -764,107 +968,185 @@ function showDate() {
 
 // Neural-band / keyboard events
 
-document.addEventListener('keydown', event => {
-  if (event.isComposing || event.repeat) return;
+document.addEventListener(
+  'keydown',
+  event => {
+    if (
+      event.isComposing ||
+      event.repeat
+    ) {
+      return;
+    }
 
-  if (arrows[event.key]) {
-    event.preventDefault();
-    swipe(event.key);
-    return;
-  }
+    if (
+      arrows[event.key]
+    ) {
+      event.preventDefault();
 
-  if (
-    event.key === 'Enter' &&
-    !['TEXTAREA', 'INPUT'].includes(
-      document.activeElement?.tagName
-    )
-  ) {
-    event.preventDefault();
-    document.activeElement?.click?.();
+      swipe(event.key);
+      return;
+    }
+
+    if (
+      (
+        event.key === 'Enter' ||
+        event.key === ' '
+      ) &&
+      ![
+        'TEXTAREA',
+        'INPUT'
+      ].includes(
+        document.activeElement?.tagName
+      )
+    ) {
+      event.preventDefault();
+
+      document.activeElement
+        ?.click?.();
+
+      return;
+    }
+
+    if (
+      event.key === 'Escape'
+    ) {
+      event.preventDefault();
+
+      goBack();
+    }
   }
-});
+);
 
 // Touch / pointer swipe support
 
 let pointer = null;
 let suppressClick = false;
 
-document.addEventListener('pointerdown', event => {
-  pointer = {
-    x: event.clientX,
-    y: event.clientY,
-    id: event.pointerId
-  };
-});
-
-document.addEventListener('pointerup', event => {
-  if (!pointer || event.pointerId !== pointer.id) return;
-
-  const dx = event.clientX - pointer.x;
-  const dy = event.clientY - pointer.y;
-
-  pointer = null;
-
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 45) return;
-
-  suppressClick = true;
-
-  setTimeout(() => {
-    suppressClick = false;
-  }, 350);
-
-  swipe(
-    Math.abs(dx) > Math.abs(dy)
-      ? dx > 0
-        ? 'ArrowRight'
-        : 'ArrowLeft'
-      : dy > 0
-        ? 'ArrowDown'
-        : 'ArrowUp'
-  );
-});
-
-document.addEventListener('pointercancel', () => {
-  pointer = null;
-});
-
-document.addEventListener('click', event => {
-  if (suppressClick) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }
-}, true);
-
-// Lifecycle
-
-window.addEventListener('pagehide', () => {
-  key = null;
-  entries = [];
-  draft = null;
-  first = null;
-
-  showLock();
-});
-
-window.addEventListener('storage', event => {
-  if (event.key === STORE) location.reload();
-});
-
-// Startup
-
-$('date').textContent = new Date().toLocaleDateString(
-  undefined,
-  {
-    month: 'short',
-    day: 'numeric'
+document.addEventListener(
+  'pointerdown',
+  event => {
+    pointer = {
+      x: event.clientX,
+      y: event.clientY,
+      id: event.pointerId
+    };
   }
 );
 
+document.addEventListener(
+  'pointerup',
+  event => {
+    if (
+      !pointer ||
+      event.pointerId !== pointer.id
+    ) {
+      return;
+    }
+
+    const dx =
+      event.clientX -
+      pointer.x;
+
+    const dy =
+      event.clientY -
+      pointer.y;
+
+    pointer = null;
+
+    if (
+      Math.max(
+        Math.abs(dx),
+        Math.abs(dy)
+      ) < 45
+    ) {
+      return;
+    }
+
+    suppressClick = true;
+
+    setTimeout(
+      () => {
+        suppressClick = false;
+      },
+      350
+    );
+
+    swipe(
+      Math.abs(dx) >
+      Math.abs(dy)
+        ? dx > 0
+          ? 'ArrowRight'
+          : 'ArrowLeft'
+        : dy > 0
+          ? 'ArrowDown'
+          : 'ArrowUp'
+    );
+  }
+);
+
+document.addEventListener(
+  'pointercancel',
+  () => {
+    pointer = null;
+  }
+);
+
+document.addEventListener(
+  'click',
+  event => {
+    if (
+      suppressClick
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  },
+  true
+);
+
+// Lifecycle
+
+window.addEventListener(
+  'pagehide',
+  () => {
+    key = null;
+    entries = [];
+    draft = null;
+    first = null;
+
+    showLock();
+  }
+);
+
+window.addEventListener(
+  'storage',
+  event => {
+    if (
+      event.key === STORE
+    ) {
+      location.reload();
+    }
+  }
+);
+
+// Startup
+
+$('date').textContent =
+  new Date().toLocaleDateString(
+    undefined,
+    {
+      month: 'short',
+      day: 'numeric'
+    }
+  );
+
 try {
-  const raw = localStorage.getItem(STORE);
+  const raw =
+    localStorage.getItem(STORE);
 
   if (raw) {
-    vault = JSON.parse(raw);
+    vault =
+      JSON.parse(raw);
 
     if (
       vault.version !== 1 ||
@@ -872,17 +1154,26 @@ try {
       !vault.iv ||
       !vault.cipher
     ) {
-      throw Error('Invalid vault');
+      throw Error(
+        'Invalid vault'
+      );
     }
   }
 
-  if (!crypto.subtle) {
-    throw Error('Encryption unavailable');
+  if (
+    !crypto.subtle
+  ) {
+    throw Error(
+      'Encryption unavailable'
+    );
   }
 
   showLock();
 } catch {
-  base('Journal unavailable', '');
+  base(
+    'Journal unavailable',
+    ''
+  );
 
   screen.append(
     el(
